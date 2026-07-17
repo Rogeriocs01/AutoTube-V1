@@ -1,0 +1,26 @@
+# Ambiente virtual
+.venv/
+
+# Tokens
+token_drive.json
+token_youtube.json
+
+# Credenciais (NÃO subir)
+credentials.json
+
+# Arquivos temporários
+temp/
+
+# Cache Python
+__pycache__/
+*.pyc
+
+# VSCode
+.vscode/
+
+# Logs
+logs/
+
+# Windows
+Thumbs.db
+Desktop.ini
