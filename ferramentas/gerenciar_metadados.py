@@ -1,18 +1,28 @@
 import json
+import sys
 from pathlib import Path
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-ARQUIVO_VIDEOS = BASE_DIR / "dados" / "videos.json"
-ARQUIVO_METADADOS = BASE_DIR / "dados" / "metadados.json"
 
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
+
+from core.projetos import (
+    obter_arquivo_controle_projeto,
+    obter_arquivo_metadados_projeto,
+    obter_projeto_ativo,
+)
 
 def carregar_json(caminho):
     if not caminho.exists():
         return {}
 
     try:
-        conteudo = caminho.read_text(encoding="utf-8").strip()
+        conteudo = caminho.read_text(
+            encoding="utf-8"
+        ).strip()
 
         if not conteudo:
             return {}
@@ -20,17 +30,23 @@ def carregar_json(caminho):
         return json.loads(conteudo)
 
     except (json.JSONDecodeError, OSError) as erro:
-        print(f"Erro ao ler {caminho.name}: {erro}")
+        print(
+            f"Erro ao ler {caminho.name}: {erro}"
+        )
         return {}
 
 
 def salvar_metadados(metadados):
-    ARQUIVO_METADADOS.parent.mkdir(
+    arquivo_metadados = (
+        obter_arquivo_metadados_projeto()
+    )
+
+    arquivo_metadados.parent.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    ARQUIVO_METADADOS.write_text(
+    arquivo_metadados.write_text(
         json.dumps(
             metadados,
             indent=4,
@@ -41,8 +57,21 @@ def salvar_metadados(metadados):
 
 
 def listar_videos_sem_metadados():
-    videos = carregar_json(ARQUIVO_VIDEOS)
-    metadados = carregar_json(ARQUIVO_METADADOS)
+    arquivo_videos = (
+        obter_arquivo_controle_projeto()
+    )
+
+    arquivo_metadados = (
+        obter_arquivo_metadados_projeto()
+    )
+
+    videos = carregar_json(
+        arquivo_videos
+    )
+
+    metadados = carregar_json(
+        arquivo_metadados
+    )
 
     faltantes = []
 
@@ -87,20 +116,41 @@ def cadastrar_metadados():
     faltantes = listar_videos_sem_metadados()
 
     if not faltantes:
-        print("\nNenhum vídeo pendente sem metadados.")
+        print(
+            "\nNenhum vídeo pendente "
+            "sem metadados."
+        )
         return
 
     proximo = faltantes[0]
 
-    print("\n===== PRÓXIMO VÍDEO SEM METADADOS =====")
-    print(f"ID interno : {proximo['video_id']}")
-    print(f"Arquivo    : {proximo['arquivo']}")
-    print("=======================================")
+    print(
+        "\n===== PRÓXIMO VÍDEO "
+        "SEM METADADOS ====="
+    )
 
-    titulo = input("\nTítulo: ").strip()
+    print(
+        f"ID interno : "
+        f"{proximo['video_id']}"
+    )
+
+    print(
+        f"Arquivo    : "
+        f"{proximo['arquivo']}"
+    )
+
+    print(
+        "======================================="
+    )
+
+    titulo = input(
+        "\nTítulo: "
+    ).strip()
 
     if not titulo:
-        print("O título não pode ficar vazio.")
+        print(
+            "O título não pode ficar vazio."
+        )
         return
 
     descricao = preencher_descricao()
@@ -109,7 +159,13 @@ def cadastrar_metadados():
         "\nHashtags, separadas por espaço: "
     ).strip()
 
-    metadados = carregar_json(ARQUIVO_METADADOS)
+    arquivo_metadados = (
+        obter_arquivo_metadados_projeto()
+    )
+
+    metadados = carregar_json(
+        arquivo_metadados
+    )
 
     metadados[proximo["arquivo"]] = {
         "video_id": proximo["video_id"],
@@ -121,13 +177,31 @@ def cadastrar_metadados():
 
     salvar_metadados(metadados)
 
-    print("\nMetadados salvos com sucesso.")
-    print(f"Arquivo: {proximo['arquivo']}")
+    print(
+        "\nMetadados salvos com sucesso."
+    )
+
+    print(
+        f"Arquivo: {proximo['arquivo']}"
+    )
 
 
 def mostrar_resumo():
-    videos = carregar_json(ARQUIVO_VIDEOS)
-    metadados = carregar_json(ARQUIVO_METADADOS)
+    arquivo_videos = (
+        obter_arquivo_controle_projeto()
+    )
+
+    arquivo_metadados = (
+        obter_arquivo_metadados_projeto()
+    )
+
+    videos = carregar_json(
+        arquivo_videos
+    )
+
+    metadados = carregar_json(
+        arquivo_metadados
+    )
 
     pendentes = sum(
         1
@@ -141,24 +215,71 @@ def mostrar_resumo():
         if dados.get("status") == "pronto"
     )
 
-    faltantes = len(listar_videos_sem_metadados())
+    faltantes = len(
+        listar_videos_sem_metadados()
+    )
 
-    print("\n===== RESUMO DOS METADADOS =====")
-    print(f"Vídeos pendentes : {pendentes}")
-    print(f"Metadados prontos: {prontos}")
-    print(f"Sem metadados    : {faltantes}")
+    print(
+        "\n===== RESUMO DOS METADADOS ====="
+    )
+
+    print(
+        f"Vídeos pendentes : {pendentes}"
+    )
+
+    print(
+        f"Metadados prontos: {prontos}"
+    )
+
+    print(
+        f"Sem metadados    : {faltantes}"
+    )
+
+
+def mostrar_cabecalho():
+    projeto = obter_projeto_ativo()
+
+    print(
+        "\n=============================="
+    )
+
+    print(
+        "   GERENCIADOR DE METADADOS"
+    )
+
+    print(
+        "=============================="
+    )
+
+    if projeto:
+        print(
+            f"Projeto ativo: {projeto['nome']}"
+        )
+    else:
+        print(
+            "Projeto ativo: NENHUM"
+        )
 
 
 def iniciar():
     while True:
-        print("\n==============================")
-        print("   GERENCIADOR DE METADADOS")
-        print("==============================")
-        print("1 - Cadastrar próximo vídeo")
-        print("2 - Ver resumo")
-        print("0 - Sair")
+        mostrar_cabecalho()
 
-        opcao = input("\nEscolha uma opção: ").strip()
+        print(
+            "1 - Cadastrar próximo vídeo"
+        )
+
+        print(
+            "2 - Ver resumo"
+        )
+
+        print(
+            "0 - Sair"
+        )
+
+        opcao = input(
+            "\nEscolha uma opção: "
+        ).strip()
 
         if opcao == "1":
             cadastrar_metadados()
@@ -167,11 +288,15 @@ def iniciar():
             mostrar_resumo()
 
         elif opcao == "0":
-            print("Saindo...")
+            print(
+                "Saindo..."
+            )
             break
 
         else:
-            print("Opção inválida.")
+            print(
+                "Opção inválida."
+            )
 
 
 if __name__ == "__main__":

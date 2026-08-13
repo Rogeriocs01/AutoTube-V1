@@ -1,32 +1,34 @@
 import json
-from pathlib import Path
 
-
-CAMINHO_METADADOS = (
-    Path(__file__).resolve().parent.parent
-    / "dados"
-    / "metadados.json"
+from core.projetos import (
+    obter_arquivo_metadados_projeto,
 )
 
 
 def carregar_arquivo_metadados():
     """
-    Carrega o conteúdo do arquivo dados/metadados.json.
-
-    Retorna um dicionário vazio caso o arquivo não exista,
-    esteja vazio ou contenha um JSON inválido.
+    Carrega o arquivo metadados.json
+    pertencente ao projeto ativo.
     """
-    if not CAMINHO_METADADOS.exists():
+
+    caminho_metadados = (
+        obter_arquivo_metadados_projeto()
+    )
+
+    if not caminho_metadados.exists():
         print(
-            "\nArquivo de metadados não encontrado:"
-            f"\n{CAMINHO_METADADOS}"
+            "\nArquivo de metadados "
+            "não encontrado:"
+            f"\n{caminho_metadados}"
         )
         return {}
 
     try:
-        conteudo = CAMINHO_METADADOS.read_text(
-            encoding="utf-8"
-        ).strip()
+        conteudo = (
+            caminho_metadados.read_text(
+                encoding="utf-8"
+            ).strip()
+        )
 
         if not conteudo:
             return {}
@@ -35,8 +37,8 @@ def carregar_arquivo_metadados():
 
         if not isinstance(dados, dict):
             print(
-                "\nO arquivo metadados.json possui "
-                "um formato inválido."
+                "\nO arquivo metadados.json "
+                "possui um formato inválido."
             )
             return {}
 
@@ -44,27 +46,37 @@ def carregar_arquivo_metadados():
 
     except json.JSONDecodeError as erro:
         print(
-            "\nNão foi possível interpretar o "
-            "arquivo metadados.json."
+            "\nNão foi possível interpretar "
+            "o arquivo metadados.json."
         )
         print(f"Detalhes: {erro}")
         return {}
 
     except OSError as erro:
-        print("\nNão foi possível ler o metadados.json.")
+        print(
+            "\nNão foi possível ler "
+            "o metadados.json."
+        )
         print(f"Detalhes: {erro}")
         return {}
 
 
-def montar_descricao(descricao, hashtags):
+def montar_descricao(
+    descricao,
+    hashtags,
+):
     """
-    Junta a descrição e as hashtags.
+    Junta descrição e hashtags sem
+    duplicar as hashtags.
+    """
 
-    Caso as hashtags já estejam presentes na descrição,
-    elas não serão adicionadas novamente.
-    """
-    descricao = str(descricao or "").strip()
-    hashtags = str(hashtags or "").strip()
+    descricao = str(
+        descricao or ""
+    ).strip()
+
+    hashtags = str(
+        hashtags or ""
+    ).strip()
 
     if not hashtags:
         return descricao
@@ -75,69 +87,111 @@ def montar_descricao(descricao, hashtags):
     if not descricao:
         return hashtags
 
-    return f"{descricao}\n\n{hashtags}"
+    return (
+        f"{descricao}\n\n{hashtags}"
+    )
 
 
 def buscar_metadados(nome_arquivo):
     """
-    Procura os metadados de um vídeo pelo nome exato
-    do arquivo.
-
-    Exemplo:
-    17867470371350431.mp4
+    Procura os metadados pelo nome
+    exato do arquivo dentro do
+    projeto atualmente selecionado.
     """
-    nome_arquivo = str(nome_arquivo).strip()
+
+    nome_arquivo = str(
+        nome_arquivo
+    ).strip()
 
     if not nome_arquivo:
-        print("\nNome do arquivo do vídeo não informado.")
+        print(
+            "\nNome do arquivo do vídeo "
+            "não informado."
+        )
         return None
 
-    todos_metadados = carregar_arquivo_metadados()
+    todos_metadados = (
+        carregar_arquivo_metadados()
+    )
 
-    metadados = todos_metadados.get(nome_arquivo)
+    metadados = todos_metadados.get(
+        nome_arquivo
+    )
 
     if metadados is None:
-        print("\n===== METADADOS NÃO ENCONTRADOS =====")
+        print(
+            "\n===== METADADOS "
+            "NÃO ENCONTRADOS ====="
+        )
         print(f"Arquivo: {nome_arquivo}")
         print("")
         print(
-            "Cadastre os metadados antes de publicar:"
+            "Cadastre os metadados "
+            "antes de publicar:"
         )
         print(
-            r"python ferramentas\gerenciar_metadados.py"
+            r"python ferramentas"
+            r"\gerenciar_metadados.py"
         )
-        print("=====================================")
+        print(
+            "====================================="
+        )
+
         return None
 
-    if not isinstance(metadados, dict):
-        print("\nOs metadados encontrados são inválidos.")
+    if not isinstance(
+        metadados,
+        dict,
+    ):
+        print(
+            "\nOs metadados encontrados "
+            "são inválidos."
+        )
         print(f"Arquivo: {nome_arquivo}")
         return None
 
     status = str(
-        metadados.get("status", "")
+        metadados.get(
+            "status",
+            "",
+        )
     ).strip().lower()
 
     if status and status != "pronto":
-        print("\nOs metadados ainda não estão prontos.")
+        print(
+            "\nOs metadados ainda "
+            "não estão prontos."
+        )
         print(f"Arquivo: {nome_arquivo}")
         print(f"Status atual: {status}")
         return None
 
     titulo = str(
-        metadados.get("titulo", "")
+        metadados.get(
+            "titulo",
+            "",
+        )
     ).strip()
 
     descricao = str(
-        metadados.get("descricao", "")
+        metadados.get(
+            "descricao",
+            "",
+        )
     ).strip()
 
     hashtags = str(
-        metadados.get("hashtags", "")
+        metadados.get(
+            "hashtags",
+            "",
+        )
     ).strip()
 
     if not titulo:
-        print("\nO título dos metadados está vazio.")
+        print(
+            "\nO título dos metadados "
+            "está vazio."
+        )
         print(f"Arquivo: {nome_arquivo}")
         return None
 

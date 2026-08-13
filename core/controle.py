@@ -1,17 +1,29 @@
 import json
 from datetime import datetime
 
-from config import ARQUIVO_CONTROLE, PASTA_DADOS
+from core.drive import (
+    listar_videos_pendentes,
+    baixar_video,
+)
 
-from core.drive import listar_videos_pendentes, baixar_video
+from core.projetos import (
+    obter_arquivo_controle_projeto,
+    obter_pasta_dados_projeto,
+)
 
 
 def carregar_controle():
-    if not ARQUIVO_CONTROLE.exists():
+    arquivo_controle = (
+        obter_arquivo_controle_projeto()
+    )
+
+    if not arquivo_controle.exists():
         return {}
 
     try:
-        conteudo = ARQUIVO_CONTROLE.read_text(encoding="utf-8")
+        conteudo = arquivo_controle.read_text(
+            encoding="utf-8"
+        )
 
         if not conteudo.strip():
             return {}
@@ -19,14 +31,24 @@ def carregar_controle():
         return json.loads(conteudo)
 
     except (json.JSONDecodeError, OSError) as erro:
-        print(f"Erro ao carregar videos.json: {erro}")
+        print(
+            f"Erro ao carregar videos.json: {erro}"
+        )
         return {}
 
 
 def salvar_controle(controle):
-    PASTA_DADOS.mkdir(parents=True, exist_ok=True)
+    pasta_dados = obter_pasta_dados_projeto()
+    arquivo_controle = (
+        obter_arquivo_controle_projeto()
+    )
 
-    ARQUIVO_CONTROLE.write_text(
+    pasta_dados.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    arquivo_controle.write_text(
         json.dumps(
             controle,
             indent=4,
@@ -41,8 +63,10 @@ def criar_controle_videos():
 
     controle = {}
 
-    for indice, video in enumerate(videos, start=1):
-
+    for indice, video in enumerate(
+        videos,
+        start=1,
+    ):
         video_id = f"YT_{indice:04d}"
 
         controle[video_id] = {
@@ -55,11 +79,13 @@ def criar_controle_videos():
 
     salvar_controle(controle)
 
-    print(f"Controle criado com {len(videos)} vídeos.")
+    print(
+        f"Controle criado com "
+        f"{len(videos)} vídeos."
+    )
 
 
 def mostrar_resumo_controle():
-
     controle = carregar_controle()
 
     if not controle:
@@ -94,11 +120,9 @@ def mostrar_resumo_controle():
 
 
 def obter_proximo_video_pendente():
-
     controle = carregar_controle()
 
     for video_id, video in controle.items():
-
         if video["status"] == "pendente":
             return video_id, video
 
@@ -106,11 +130,14 @@ def obter_proximo_video_pendente():
 
 
 def mostrar_proximo_video():
-
-    video_id, video = obter_proximo_video_pendente()
+    video_id, video = (
+        obter_proximo_video_pendente()
+    )
 
     if video is None:
-        print("\nNenhum vídeo pendente encontrado.")
+        print(
+            "\nNenhum vídeo pendente encontrado."
+        )
         return
 
     print("\n===== PRÓXIMO VÍDEO =====")
@@ -122,17 +149,25 @@ def mostrar_proximo_video():
 
 
 def baixar_proximo_video():
-
-    video_id, video = obter_proximo_video_pendente()
+    video_id, video = (
+        obter_proximo_video_pendente()
+    )
 
     if video is None:
-        print("\nNenhum vídeo pendente encontrado.")
+        print(
+            "\nNenhum vídeo pendente encontrado."
+        )
         return None
 
-    print("\n===== DOWNLOAD DO PRÓXIMO VÍDEO =====")
+    print(
+        "\n===== DOWNLOAD DO "
+        "PRÓXIMO VÍDEO ====="
+    )
     print(f"ID interno : {video_id}")
     print(f"Arquivo    : {video['arquivo']}")
-    print("=====================================")
+    print(
+        "====================================="
+    )
 
     caminho = baixar_video(
         drive_id=video["drive_id"],
@@ -140,25 +175,45 @@ def baixar_proximo_video():
     )
 
     if caminho:
-        print("\nDownload realizado com sucesso.")
-        print("Status do vídeo permanece como 'pendente'.")
+        print(
+            "\nDownload realizado com sucesso."
+        )
+        print(
+            "Status do vídeo permanece "
+            "como 'pendente'."
+        )
 
     return caminho
 
-def registrar_video_publicado(video_id, youtube_id):
+
+def registrar_video_publicado(
+    video_id,
+    youtube_id,
+):
     controle = carregar_controle()
 
     if video_id not in controle:
-        print(f"Vídeo não encontrado no controle: {video_id}")
+        print(
+            "Vídeo não encontrado no controle: "
+            f"{video_id}"
+        )
         return False
 
     controle[video_id]["status"] = "publicado"
-    controle[video_id]["youtube_id"] = youtube_id
-    controle[video_id]["data_publicacao"] = datetime.now().isoformat(
+    controle[video_id]["youtube_id"] = (
+        youtube_id
+    )
+
+    controle[video_id][
+        "data_publicacao"
+    ] = datetime.now().isoformat(
         timespec="seconds"
     )
 
     salvar_controle(controle)
 
-    print("videos.json atualizado com sucesso.")
+    print(
+        "videos.json atualizado com sucesso."
+    )
+
     return True

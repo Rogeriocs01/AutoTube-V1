@@ -1,0 +1,40 @@
+{
+  "projeto_001": {
+    "nome": "RogerioSouzaTech",
+    "ativo": true,
+    "drive": {
+      "pasta_pendentes_id": "15CSWuspBG72_YgY8apghnpfOr7thWTRB",
+      "pasta_publicados_id": "1ieP4EonSPep7k7mSYVZE2E1PNgU8-uEZ",
+      "pasta_erros_id": "1juhtaKNZxs5Y6fRSMazX_j8GLHODyCXF",
+      "pasta_thumbs_id": "1jNSniF1oXb68JQ7AN0mAaraFhQWkxXo1"
+    },
+    "plataformas": {
+      "youtube": {
+        "ativo": true,
+        "canal_id": "UCpY6Pi1fPLVmXY19l6SUOlg",
+        "categoria_id": "28",
+        "privacidade_padrao": "public"
+      }
+    }
+  },
+
+  "projeto_002": {
+    "nome": "RSGameChronicles",
+    "ativo": true,
+    "drive": {
+      "pasta_pendentes_id": "1pqBHofOCbeWsLgjjiwJJMMN0vWIAjRdU",
+      "pasta_publicados_id": "1S77oK_CIrqgfQ_DasOTHXsZepizW2VyN",
+      "pasta_erros_id": "16YZAKe9TD0DArnIxP-TM1Nr9zY5y7g-g",
+      "pasta_thumbs_id": "1hr5FYQUnQGaH25Q2e183YFIvN4NE83yc"
+    },
+    "plataformas": {
+      "youtube": {
+        "ativo": true,
+        "canal_id": "UC8Fq_CoUdjpFS61P-3FuuTg",
+
+        "categoria_id": "20",
+        "privacidade_padrao": "public"
+      }
+    }
+  }
+}

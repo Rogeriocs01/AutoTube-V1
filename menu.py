@@ -1,16 +1,26 @@
+from core.projetos import (
+    listar_projetos,
+    mostrar_projeto_ativo,
+    obter_projeto_ativo,
+    selecionar_projeto,
+)
+
 from core.controle import (
     criar_controle_videos,
     mostrar_proximo_video,
     mostrar_resumo_controle,
 )
+
 from core.drive import (
     mostrar_videos_pendentes,
     testar_conexao_drive,
 )
+
 from core.pipeline import (
     publicar_proximo_video,
     publicar_videos_em_lote,
 )
+
 from core.youtube import listar_canais_youtube
 
 
@@ -18,6 +28,16 @@ def exibir_opcoes():
     print("\n==========================")
     print("       AUTOTUBE V1")
     print("==========================")
+
+    projeto = obter_projeto_ativo()
+
+    if projeto:
+        print(
+            f"Projeto ativo: "
+            f"{projeto['nome']}"
+        )
+    else:
+        print("Projeto ativo: NENHUM")
 
     print("\nDRIVE")
     print("1 - Testar conexão com Google Drive")
@@ -34,6 +54,11 @@ def exibir_opcoes():
     print("\nPUBLICAÇÃO")
     print("7 - Publicar próximo vídeo")
     print("8 - Publicar vídeos em lote")
+
+    print("\nPROJETOS")
+    print("9 - Listar projetos")
+    print("10 - Trocar projeto")
+    print("11 - Mostrar projeto ativo")
 
     print("\n0 - Sair")
 
@@ -75,6 +100,15 @@ def iniciar():
 
         elif opcao == "8":
             publicar_videos_em_lote()
+
+        elif opcao == "9":
+            listar_projetos()
+
+        elif opcao == "10":
+            selecionar_projeto()
+
+        elif opcao == "11":
+            mostrar_projeto_ativo()
 
         elif opcao == "0":
             print("\nSaindo do AutoTube...")
