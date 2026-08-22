@@ -349,3 +349,271 @@ def publicar_video(
         )
 
         return None
+
+def listar_playlists_youtube():
+    projeto = obter_projeto_ativo()
+
+    youtube = conectar_youtube()
+
+    if youtube is None:
+        print(
+            "\nNão foi possível conectar "
+            "ao YouTube."
+        )
+        return []
+
+    playlists = []
+    page_token = None
+
+    try:
+        while True:
+            resposta = youtube.playlists().list(
+                part="snippet,id",
+                mine=True,
+                maxResults=50,
+                pageToken=page_token,
+            ).execute()
+
+            for item in resposta.get(
+                "items",
+                [],
+            ):
+                playlists.append(
+                    {
+                        "id": item["id"],
+                        "nome": (
+                            item["snippet"]["title"]
+                        ),
+                    }
+                )
+
+            page_token = resposta.get(
+                "nextPageToken"
+            )
+
+            if not page_token:
+                break
+
+    except HttpError as erro:
+        print(
+            "\nErro ao consultar playlists "
+            f"do YouTube: {erro}"
+        )
+        return []
+
+    print(
+        "\n===== PLAYLISTS DO YOUTUBE ====="
+    )
+
+    if projeto:
+        print(
+            f"Projeto ativo: "
+            f"{projeto['nome']}"
+        )
+
+    if not playlists:
+        print(
+            "\nNenhuma playlist encontrada."
+        )
+        return []
+
+    for indice, playlist in enumerate(
+        playlists,
+        start=1,
+    ):
+        print(
+            f"\n{indice} - "
+            f"{playlist['nome']}"
+        )
+
+        print(
+            f"ID: {playlist['id']}"
+        )
+
+    print(
+        "\n================================"
+    )
+
+    return playlists
+
+def adicionar_video_playlist(
+    youtube_id: str,
+    playlist_id: str,
+):
+    if not playlist_id:
+        print(
+            "\nNenhuma playlist definida. "
+            "Etapa ignorada."
+        )
+        return True
+
+    youtube = conectar_youtube()
+
+    if youtube is None:
+        print(
+            "\nNão foi possível conectar "
+            "ao YouTube para adicionar "
+            "o vídeo à playlist."
+        )
+        return False
+
+    corpo = {
+        "snippet": {
+            "playlistId": playlist_id,
+            "resourceId": {
+                "kind": "youtube#video",
+                "videoId": youtube_id,
+            },
+        }
+    }
+
+    try:
+        youtube.playlistItems().insert(
+            part="snippet",
+            body=corpo,
+        ).execute()
+
+        print(
+            "\nVídeo adicionado à playlist "
+            "com sucesso."
+        )
+
+        return True
+
+    except HttpError as erro:
+        print(
+            "\nO vídeo foi publicado, "
+            "mas não foi possível adicioná-lo "
+            "à playlist."
+        )
+
+        print(
+            f"Detalhes: {erro}"
+        )
+
+        return False
+
+def definir_thumbnail_youtube(
+    youtube_id: str,
+    caminho_thumbnail: Path,
+):
+    if caminho_thumbnail is None:
+        print(
+            "\nNenhuma thumbnail definida. "
+            "Etapa ignorada."
+        )
+        return True
+
+    if not caminho_thumbnail.exists():
+        print(
+            "\nArquivo de thumbnail "
+            "não encontrado:"
+        )
+        print(caminho_thumbnail)
+        return False
+
+    extensao = (
+        caminho_thumbnail.suffix.lower()
+    )
+
+    if extensao in {
+        ".jpg",
+        ".jpeg",
+    }:
+        mimetype = "image/jpeg"
+
+    elif extensao == ".png":
+        mimetype = "image/png"
+
+    else:
+        print(
+            "\nFormato de thumbnail "
+            "não suportado."
+        )
+        print(
+            "Use JPG, JPEG ou PNG."
+        )
+        return False
+
+    youtube = conectar_youtube()
+
+    if youtube is None:
+        print(
+            "\nNão foi possível conectar "
+            "ao YouTube para enviar "
+            "a thumbnail."
+        )
+        return False
+
+    midia = MediaFileUpload(
+        str(caminho_thumbnail),
+        mimetype=mimetype,
+        resumable=False,
+    )
+
+    try:
+        youtube.thumbnails().set(
+            videoId=youtube_id,
+            media_body=midia,
+        ).execute()
+
+        print(
+            "\nThumbnail definida "
+            "com sucesso."
+        )
+
+        return True
+
+    except HttpError as erro:
+        print(
+            "\nO vídeo foi publicado, "
+            "mas não foi possível definir "
+            "a thumbnail."
+        )
+
+        print(
+            f"Detalhes: {erro}"
+        )
+
+        return False
+
+def obter_canal_youtube_autenticado():
+    configuracao = obter_configuracao_youtube()
+
+    if configuracao is None:
+        return None
+
+    canal_configurado = configuracao.get(
+        "canal_id",
+        "",
+    )
+
+    youtube = conectar_youtube()
+
+    if youtube is None:
+        return None
+
+    try:
+        resposta = youtube.channels().list(
+            part="snippet,id",
+            mine=True,
+        ).execute()
+
+    except HttpError as erro:
+        print(
+            "\nErro ao identificar o canal "
+            f"do YouTube: {erro}"
+        )
+        return None
+
+    for canal in resposta.get(
+        "items",
+        [],
+    ):
+        if canal["id"] == canal_configurado:
+            return {
+                "id": canal["id"],
+                "nome": canal["snippet"]["title"],
+            }
+
+    return None

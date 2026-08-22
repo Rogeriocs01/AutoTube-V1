@@ -14,14 +14,19 @@ from core.controle import (
 from core.drive import (
     mostrar_videos_pendentes,
     testar_conexao_drive,
+    testar_thumbnail_video,
 )
 
 from core.pipeline import (
     publicar_proximo_video,
+    publicar_video_escolhido,
     publicar_videos_em_lote,
 )
 
-from core.youtube import listar_canais_youtube
+from core.youtube import (
+    listar_canais_youtube,
+    listar_playlists_youtube,
+)
 
 
 def exibir_opcoes():
@@ -42,18 +47,21 @@ def exibir_opcoes():
     print("\nDRIVE")
     print("1 - Testar conexão com Google Drive")
     print("2 - Listar vídeos pendentes")
+    print("14 - Testar thumbnail")
 
     print("\nCONTROLE")
-    print("3 - Criar controle videos.json")
+    print("3 - Sincronizar vídeos pendentes")
     print("4 - Ver resumo do controle")
 
     print("\nYOUTUBE")
     print("5 - Listar canais do YouTube")
     print("6 - Mostrar próximo vídeo")
+    print("12 - Listar playlists do YouTube")
 
     print("\nPUBLICAÇÃO")
     print("7 - Publicar próximo vídeo")
     print("8 - Publicar vídeos em lote")
+    print("13 - Escolher vídeo para publicar")
 
     print("\nPROJETOS")
     print("9 - Listar projetos")
@@ -67,7 +75,9 @@ def iniciar():
     while True:
         exibir_opcoes()
 
-        opcao = input("\nEscolha uma opção: ").strip()
+        opcao = input(
+            "\nEscolha uma opção: "
+        ).strip()
 
         if opcao == "1":
             testar_conexao_drive()
@@ -76,15 +86,7 @@ def iniciar():
             mostrar_videos_pendentes()
 
         elif opcao == "3":
-            confirmar = input(
-                "\nIsso substituirá o videos.json atual. "
-                "Continuar? [S/N]: "
-            ).strip().lower()
-
-            if confirmar == "s":
-                criar_controle_videos()
-            else:
-                print("\nOperação cancelada.")
+            criar_controle_videos()
 
         elif opcao == "4":
             mostrar_resumo_controle()
@@ -110,9 +112,33 @@ def iniciar():
         elif opcao == "11":
             mostrar_projeto_ativo()
 
+        elif opcao == "12":
+            listar_playlists_youtube()
+
+        elif opcao == "13":
+            publicar_video_escolhido()
+
+        elif opcao == "14":
+            nome_video = input(
+                "\nDigite o nome completo do vídeo: "
+            ).strip()
+
+            if nome_video:
+                testar_thumbnail_video(
+                    nome_video
+                )
+            else:
+                print(
+                    "\nNome do vídeo não informado."
+                )
+
         elif opcao == "0":
-            print("\nSaindo do AutoTube...")
+            print(
+                "\nSaindo do AutoTube..."
+            )
             break
 
         else:
-            print("\nOpção inválida.")
+            print(
+                "\nOpção inválida."
+            )

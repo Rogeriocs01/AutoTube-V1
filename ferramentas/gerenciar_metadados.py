@@ -15,6 +15,9 @@ from core.projetos import (
     obter_projeto_ativo,
 )
 
+from core.youtube import listar_playlists_youtube
+
+
 def carregar_json(caminho):
     if not caminho.exists():
         return {}
@@ -112,6 +115,60 @@ def preencher_descricao():
     return "\n".join(linhas).strip()
 
 
+def selecionar_playlist():
+    print(
+        "\nConsultando playlists "
+        "do canal ativo..."
+    )
+
+    playlists = listar_playlists_youtube()
+
+    if not playlists:
+        print(
+            "\nNenhuma playlist disponível."
+        )
+
+        confirmar = input(
+            "Continuar sem playlist? [S/N]: "
+        ).strip().lower()
+
+        if confirmar == "s":
+            return None
+
+        print(
+            "\nCadastro cancelado."
+        )
+        return "cancelar"
+
+    print(
+        "\n0 - Sem playlist"
+    )
+
+    while True:
+        escolha = input(
+            "\nEscolha a playlist: "
+        ).strip()
+
+        if escolha == "0":
+            return None
+
+        if not escolha.isdigit():
+            print(
+                "Opção inválida."
+            )
+            continue
+
+        indice = int(escolha) - 1
+
+        if indice < 0 or indice >= len(playlists):
+            print(
+                "Opção inválida."
+            )
+            continue
+
+        return playlists[indice]
+
+
 def cadastrar_metadados():
     faltantes = listar_videos_sem_metadados()
 
@@ -159,6 +216,11 @@ def cadastrar_metadados():
         "\nHashtags, separadas por espaço: "
     ).strip()
 
+    playlist = selecionar_playlist()
+
+    if playlist == "cancelar":
+        return
+
     arquivo_metadados = (
         obter_arquivo_metadados_projeto()
     )
@@ -167,7 +229,7 @@ def cadastrar_metadados():
         arquivo_metadados
     )
 
-    metadados[proximo["arquivo"]] = {
+    novos_metadados = {
         "video_id": proximo["video_id"],
         "titulo": titulo,
         "descricao": descricao,
@@ -175,7 +237,31 @@ def cadastrar_metadados():
         "status": "pronto",
     }
 
-    salvar_metadados(metadados)
+    if playlist is not None:
+        novos_metadados[
+            "playlist_id"
+        ] = playlist["id"]
+
+        novos_metadados[
+            "playlist_nome"
+        ] = playlist["nome"]
+
+    else:
+        novos_metadados[
+            "playlist_id"
+        ] = ""
+
+        novos_metadados[
+            "playlist_nome"
+        ] = ""
+
+    metadados[
+        proximo["arquivo"]
+    ] = novos_metadados
+
+    salvar_metadados(
+        metadados
+    )
 
     print(
         "\nMetadados salvos com sucesso."
@@ -184,6 +270,17 @@ def cadastrar_metadados():
     print(
         f"Arquivo: {proximo['arquivo']}"
     )
+
+    if playlist is not None:
+        print(
+            f"Playlist: "
+            f"{playlist['nome']}"
+        )
+
+    else:
+        print(
+            "Playlist: nenhuma"
+        )
 
 
 def mostrar_resumo():
@@ -219,6 +316,12 @@ def mostrar_resumo():
         listar_videos_sem_metadados()
     )
 
+    com_playlist = sum(
+        1
+        for dados in metadados.values()
+        if dados.get("playlist_id")
+    )
+
     print(
         "\n===== RESUMO DOS METADADOS ====="
     )
@@ -233,6 +336,10 @@ def mostrar_resumo():
 
     print(
         f"Sem metadados    : {faltantes}"
+    )
+
+    print(
+        f"Com playlist     : {com_playlist}"
     )
 
 

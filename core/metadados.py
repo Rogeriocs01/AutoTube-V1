@@ -200,6 +200,34 @@ def buscar_metadados(nome_arquivo):
         hashtags=hashtags,
     )
 
+    playlist_id = str(
+    metadados.get(
+        "playlist_id",
+        "",
+    )
+        ).strip()
+
+    playlist_nome = str(
+    metadados.get(
+        "playlist_nome",
+        "",
+    )
+    ).strip()
+
+
+    return {
+            "titulo": titulo,
+            "descricao": descricao_completa,
+            "hashtags": hashtags,
+            "playlist_id": playlist_id,
+            "playlist_nome": playlist_nome,
+        }
+
+
+
+
+
+
     return {
         "titulo": titulo,
         "descricao": descricao_completa,
