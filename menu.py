@@ -12,18 +12,21 @@ from core.controle import (
 )
 
 from core.drive import (
+    baixar_thumbnail,
     mostrar_videos_pendentes,
     testar_conexao_drive,
     testar_thumbnail_video,
 )
 
 from core.pipeline import (
+    excluir_arquivo_temporario,
     publicar_proximo_video,
     publicar_video_escolhido,
     publicar_videos_em_lote,
 )
 
 from core.youtube import (
+    definir_thumbnail_youtube,
     listar_canais_youtube,
     listar_playlists_youtube,
 )
@@ -47,7 +50,7 @@ def exibir_opcoes():
     print("\nDRIVE")
     print("1 - Testar conexão com Google Drive")
     print("2 - Listar vídeos pendentes")
-    print("14 - Testar thumbnail")
+    print("14 - Testar localização de thumbnail")
 
     print("\nCONTROLE")
     print("3 - Sincronizar vídeos pendentes")
@@ -57,6 +60,7 @@ def exibir_opcoes():
     print("5 - Listar canais do YouTube")
     print("6 - Mostrar próximo vídeo")
     print("12 - Listar playlists do YouTube")
+    print("15 - Testar aplicação de thumbnail")
 
     print("\nPUBLICAÇÃO")
     print("7 - Publicar próximo vídeo")
@@ -69,6 +73,107 @@ def exibir_opcoes():
     print("11 - Mostrar projeto ativo")
 
     print("\n0 - Sair")
+
+
+def testar_aplicacao_thumbnail():
+    print(
+        "\n========================================"
+    )
+    print(
+        "      TESTE DE THUMBNAIL NO YOUTUBE"
+    )
+    print(
+        "========================================"
+    )
+
+    nome_video = input(
+        "\nNome completo do vídeo: "
+    ).strip()
+
+    if not nome_video:
+        print(
+            "\nNome do vídeo não informado."
+        )
+        return
+
+    youtube_id = input(
+        "YouTube ID do vídeo já publicado: "
+    ).strip()
+
+    if not youtube_id:
+        print(
+            "\nYouTube ID não informado."
+        )
+        return
+
+    print(
+        "\nProcurando e baixando thumbnail..."
+    )
+
+    caminho_thumbnail = baixar_thumbnail(
+        nome_video=nome_video
+    )
+
+    if caminho_thumbnail is None:
+        print(
+            "\nNão foi possível localizar "
+            "ou baixar a thumbnail."
+        )
+        return
+
+    print(
+        "\nThumbnail preparada:"
+    )
+    print(
+        caminho_thumbnail
+    )
+
+    confirmar = input(
+        "\nAplicar esta thumbnail "
+        "ao vídeo do YouTube? [S/N]: "
+    ).strip().lower()
+
+    if confirmar != "s":
+        print(
+            "\nTeste cancelado."
+        )
+
+        excluir_arquivo_temporario(
+            caminho_thumbnail
+        )
+
+        return
+
+    sucesso = definir_thumbnail_youtube(
+        youtube_id=youtube_id,
+        caminho_thumbnail=caminho_thumbnail,
+    )
+
+    excluir_arquivo_temporario(
+        caminho_thumbnail
+    )
+
+    if sucesso:
+        print(
+            "\n========================================"
+        )
+        print(
+            "THUMBNAIL APLICADA COM SUCESSO"
+        )
+        print(
+            "========================================"
+        )
+
+    else:
+        print(
+            "\n========================================"
+        )
+        print(
+            "FALHA AO APLICAR THUMBNAIL"
+        )
+        print(
+            "========================================"
+        )
 
 
 def iniciar():
@@ -131,6 +236,9 @@ def iniciar():
                 print(
                     "\nNome do vídeo não informado."
                 )
+
+        elif opcao == "15":
+            testar_aplicacao_thumbnail()
 
         elif opcao == "0":
             print(

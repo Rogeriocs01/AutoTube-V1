@@ -17,29 +17,27 @@ YOUTUBE_SCOPES = [
 ]
 
 
-# Google Drive
-PASTA_PENDENTES_ID = "1gD73Mm3PPW8007G6SwcPu6TCzUdwGGw7"
-PASTA_PUBLICADOS_ID = "1uL1wSTRk7viwYesgUJkRbz_FrWE7KQ9v"
-
-
-# Canal correto do YouTube
-CANAL_YOUTUBE_ID = "UCpY6Pi1fPLVmXY19l6SUOlg"
-
-
 # Pastas locais
 PASTA_DADOS = BASE_DIR / "dados"
 PASTA_LOGS = BASE_DIR / "logs"
 PASTA_TEMP = BASE_DIR / "temp"
 
 
-# Arquivos locais
-ARQUIVO_CONTROLE = PASTA_DADOS / "videos.json"
-ARQUIVO_CREDENTIALS = BASE_DIR / "credentials.json"
+# Credenciais e tokens
+ARQUIVO_CREDENTIALS = (
+    BASE_DIR / "credentials.json"
+)
 
-ARQUIVO_TOKEN_DRIVE = BASE_DIR / "token_drive.json"
-ARQUIVO_TOKEN_YOUTUBE = BASE_DIR / "token_youtube.json"
+ARQUIVO_TOKEN_DRIVE = (
+    BASE_DIR / "token_drive.json"
+)
+
+ARQUIVO_TOKEN_YOUTUBE = (
+    BASE_DIR / "token_youtube.json"
+)
 
 
+# Extensões de vídeo aceitas
 EXTENSOES_VIDEO = {
     ".mp4",
     ".mov",

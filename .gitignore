@@ -1,26 +1,57 @@
+# ========================================
+# AUTOTUBE - ARQUIVOS IGNORADOS PELO GIT
+# ========================================
+
 # Ambiente virtual
 .venv/
+venv/
+env/
 
-# Tokens
+# Tokens OAuth
 token_drive.json
 token_youtube.json
+token_*.json
 
-# Credenciais (NÃO subir)
+# Credenciais Google
 credentials.json
+client_secret*.json
 
 # Arquivos temporários
 temp/
+tmp/
 
 # Cache Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 
-# VSCode
+# VS Code
 .vscode/
 
 # Logs
 logs/
+*.log
 
-# Windows
+# Sistema operacional
 Thumbs.db
 Desktop.ini
+.DS_Store
+
+# Arquivos de ambiente / segredos
+.env
+.env.*
+
+# Backups compactados
+*.rar
+*.zip
+*.7z
+
+# Backups compactados
+*.rar
+*.zip
+*.7z
+
+# Estado operacional do AutoTube
+dados/*/videos.json
+projetos/projeto_ativo.json

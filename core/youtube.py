@@ -1,8 +1,17 @@
 from pathlib import Path
 
+from PIL import Image
+
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
-from googleapiclient.http import MediaFileUpload
+
+from googleapiclient.errors import (
+    HttpError,
+    MediaUploadSizeError,
+)
+
+from googleapiclient.http import (
+    MediaFileUpload,
+)
 
 from core.auth import obter_credenciais_youtube
 from core.projetos import obter_projeto_ativo
@@ -497,6 +506,17 @@ def definir_thumbnail_youtube(
     youtube_id: str,
     caminho_thumbnail: Path,
 ):
+    """
+    Define a thumbnail personalizada do vídeo.
+
+    Se a imagem ultrapassar o limite da API,
+    cria automaticamente uma versão JPG
+    otimizada antes do envio.
+
+    Falhas de thumbnail não derrubam
+    o restante do pipeline.
+    """
+
     if caminho_thumbnail is None:
         print(
             "\nNenhuma thumbnail definida. "
@@ -504,13 +524,272 @@ def definir_thumbnail_youtube(
         )
         return True
 
+    caminho_thumbnail = Path(
+        caminho_thumbnail
+    )
+
     if not caminho_thumbnail.exists():
         print(
             "\nArquivo de thumbnail "
             "não encontrado:"
         )
-        print(caminho_thumbnail)
+        print(
+            caminho_thumbnail
+        )
         return False
+
+    LIMITE_THUMBNAIL = 2 * 1024 * 1024
+
+    caminho_envio = caminho_thumbnail
+    caminho_otimizado = None
+
+    try:
+        tamanho_original = (
+            caminho_thumbnail.stat().st_size
+        )
+
+        tamanho_mb = (
+            tamanho_original
+            / 1024
+            / 1024
+        )
+
+        print(
+            f"\nTamanho da thumbnail: "
+            f"{tamanho_mb:.2f} MB"
+        )
+
+        if tamanho_original >= LIMITE_THUMBNAIL:
+            print(
+                "\nThumbnail acima do limite "
+                "de 2 MB."
+            )
+
+            print(
+                "Otimizando automaticamente..."
+            )
+
+            pasta_otimizada = (
+                caminho_thumbnail.parent
+            )
+
+            caminho_otimizado = (
+                pasta_otimizada
+                / (
+                    caminho_thumbnail.stem
+                    + "_otimizada.jpg"
+                )
+            )
+
+            with Image.open(
+                caminho_thumbnail
+            ) as imagem:
+                if imagem.mode not in (
+                    "RGB",
+                    "L",
+                ):
+                    imagem = imagem.convert(
+                        "RGB"
+                    )
+
+                qualidade = 90
+
+                while qualidade >= 40:
+                    imagem.save(
+                        caminho_otimizado,
+                        format="JPEG",
+                        quality=qualidade,
+                        optimize=True,
+                    )
+
+                    tamanho_otimizado = (
+                        caminho_otimizado
+                        .stat()
+                        .st_size
+                    )
+
+                    if (
+                        tamanho_otimizado
+                        < LIMITE_THUMBNAIL
+                    ):
+                        break
+
+                    qualidade -= 10
+
+            if (
+                not caminho_otimizado.exists()
+            ):
+                print(
+                    "\nNão foi possível criar "
+                    "a thumbnail otimizada."
+                )
+                return False
+
+            tamanho_otimizado = (
+                caminho_otimizado
+                .stat()
+                .st_size
+            )
+
+            if (
+                tamanho_otimizado
+                >= LIMITE_THUMBNAIL
+            ):
+                print(
+                    "\nA thumbnail continuou "
+                    "acima de 2 MB após "
+                    "a otimização."
+                )
+
+                return False
+
+            caminho_envio = (
+                caminho_otimizado
+            )
+
+            tamanho_final_mb = (
+                tamanho_otimizado
+                / 1024
+                / 1024
+            )
+
+            print(
+                "Thumbnail otimizada "
+                "com sucesso."
+            )
+
+            print(
+                f"Novo tamanho: "
+                f"{tamanho_final_mb:.2f} MB"
+            )
+
+        extensao = (
+            caminho_envio
+            .suffix
+            .lower()
+        )
+
+        if extensao in {
+            ".jpg",
+            ".jpeg",
+        }:
+            mimetype = "image/jpeg"
+
+        elif extensao == ".png":
+            mimetype = "image/png"
+
+        else:
+            print(
+                "\nFormato de thumbnail "
+                "não suportado."
+            )
+
+            print(
+                "Use JPG, JPEG ou PNG."
+            )
+
+            return False
+
+        youtube = conectar_youtube()
+
+        if youtube is None:
+            print(
+                "\nNão foi possível conectar "
+                "ao YouTube para enviar "
+                "a thumbnail."
+            )
+            return False
+
+        midia = MediaFileUpload(
+            str(caminho_envio),
+            mimetype=mimetype,
+            resumable=False,
+        )
+
+        youtube.thumbnails().set(
+            videoId=youtube_id,
+            media_body=midia,
+        ).execute()
+
+        print(
+            "\nThumbnail definida "
+            "com sucesso."
+        )
+
+        return True
+
+    except MediaUploadSizeError as erro:
+        print(
+            "\nO vídeo foi publicado, "
+            "mas a thumbnail ultrapassou "
+            "o limite permitido."
+        )
+
+        print(
+            f"Detalhes: {erro}"
+        )
+
+        return False
+
+    except HttpError as erro:
+        print(
+            "\nO vídeo foi publicado, "
+            "mas não foi possível definir "
+            "a thumbnail."
+        )
+
+        print(
+            f"Detalhes: {erro}"
+        )
+
+        return False
+
+    except (
+        OSError,
+        ValueError,
+    ) as erro:
+        print(
+            "\nErro ao processar "
+            "a thumbnail."
+        )
+
+        print(
+            f"Detalhes: {erro}"
+        )
+
+        return False
+
+    except Exception as erro:
+        print(
+            "\nErro inesperado ao processar "
+            "a thumbnail."
+        )
+
+        print(
+            f"Detalhes: {erro}"
+        )
+
+        return False
+
+    finally:
+        if (
+            caminho_otimizado is not None
+            and caminho_otimizado.exists()
+        ):
+            try:
+                caminho_otimizado.unlink()
+
+                print(
+                    "Thumbnail otimizada temporária "
+                    "excluída."
+                )
+
+            except OSError as erro:
+                print(
+                    "Não foi possível excluir "
+                    "a thumbnail otimizada temporária: "
+                    f"{erro}"
+                )
 
     extensao = (
         caminho_thumbnail.suffix.lower()
