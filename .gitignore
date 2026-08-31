@@ -56,3 +56,9 @@ Desktop.ini
 dados/*/videos.json
 projetos/projeto_ativo.json
 dados/*/metadados.json
+
+# PyInstaller / builds locais
+build/
+dist/
+*.spec
+*.exe
