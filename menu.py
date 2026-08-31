@@ -1,3 +1,5 @@
+from version import obter_identificacao
+
 from core.projetos import (
     listar_projetos,
     mostrar_projeto_ativo,
@@ -33,9 +35,11 @@ from core.youtube import (
 
 
 def exibir_opcoes():
-    print("\n==========================")
-    print("       AUTOTUBE V1")
-    print("==========================")
+    identificacao = obter_identificacao()
+
+    print("\n========================================")
+    print(f"      {identificacao}")
+    print("========================================")
 
     projeto = obter_projeto_ativo()
 
