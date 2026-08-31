@@ -21,6 +21,10 @@ from core.youtube import (
 )
 
 from core.projetos import obter_projeto_ativo
+from core.logger import obter_logger
+
+
+logger = obter_logger()
 
 
 NOMES_PRIVACIDADE = {
@@ -52,6 +56,7 @@ def selecionar_privacidade():
 
         if opcao == "0":
             print("\nOperação cancelada.")
+            logger.info("Seleção de privacidade cancelada")
             return None
 
         print("\nOpção inválida. Escolha 1, 2, 3 ou 0.")
@@ -75,6 +80,7 @@ def selecionar_quantidade_lote():
 
         if opcao == "0":
             print("\nPublicação em lote cancelada.")
+            logger.info("Publicação em lote cancelada")
             return None
 
         print("\nOpção inválida. Escolha 1, 2 ou 0.")
@@ -97,6 +103,13 @@ def excluir_arquivo_temporario(caminho_local):
             f"{erro}"
         )
 
+        logger.warning(
+            "Falha ao excluir arquivo temporário | "
+            "arquivo=%s | erro=%s",
+            caminho_local,
+            erro,
+        )
+
 
 def preparar_proximo_video(video_id, video):
     print("\n===== PREPARANDO PRÓXIMO VÍDEO =====")
@@ -111,10 +124,25 @@ def preparar_proximo_video(video_id, video):
 
     if caminho_local is None:
         print("\nNão foi possível preparar o vídeo.")
+
+        logger.error(
+            "Falha ao baixar vídeo | "
+            "video_id=%s | arquivo=%s",
+            video_id,
+            video.get("arquivo"),
+        )
+
         return None
 
     print("\nVídeo preparado com sucesso.")
     print(f"Local: {caminho_local}")
+
+    logger.info(
+        "Vídeo preparado | "
+        "video_id=%s | arquivo=%s",
+        video_id,
+        video.get("arquivo"),
+    )
 
     return caminho_local
 
@@ -135,13 +163,41 @@ def processar_publicacao(
             "nome de arquivo."
         )
         print(f"ID interno: {video_id}")
+
+        logger.error(
+            "Vídeo pendente sem nome de arquivo | "
+            "video_id=%s",
+            video_id,
+        )
+
         return False
+
+    logger.info(
+        "Publicação iniciada | "
+        "video_id=%s | arquivo=%s | privacidade=%s",
+        video_id,
+        nome_arquivo,
+        privacidade,
+    )
 
     projeto = obter_projeto_ativo()
 
     if projeto is None:
         print("\nNenhum projeto ativo.")
+
+        logger.error(
+            "Publicação interrompida | "
+            "motivo=nenhum projeto ativo | "
+            "video_id=%s",
+            video_id,
+        )
+
         return False
+
+    logger.info(
+        "Projeto identificado | projeto=%s",
+        projeto["nome"],
+    )
 
     metadados = buscar_metadados(
         nome_arquivo
@@ -151,6 +207,15 @@ def processar_publicacao(
         print(
             "\nO vídeo permanece pendente."
         )
+
+        logger.warning(
+            "Publicação interrompida | "
+            "motivo=metadados não encontrados | "
+            "video_id=%s | arquivo=%s",
+            video_id,
+            nome_arquivo,
+        )
+
         return False
 
     if not validar_canal_youtube():
@@ -158,6 +223,14 @@ def processar_publicacao(
             "\nPublicação cancelada "
             "por segurança."
         )
+
+        logger.warning(
+            "Publicação interrompida | "
+            "motivo=validação do canal falhou | "
+            "video_id=%s",
+            video_id,
+        )
+
         return False
 
     canal = obter_canal_youtube_autenticado()
@@ -167,7 +240,22 @@ def processar_publicacao(
             "\nNão foi possível identificar "
             "o canal autenticado."
         )
+
+        logger.error(
+            "Publicação interrompida | "
+            "motivo=canal autenticado não identificado | "
+            "video_id=%s",
+            video_id,
+        )
+
         return False
+
+    logger.info(
+        "Canal confirmado | "
+        "canal=%s | canal_id=%s",
+        canal["nome"],
+        canal["id"],
+    )
 
     playlist_id = metadados.get(
         "playlist_id",
@@ -197,9 +285,23 @@ def processar_publicacao(
             f"ENCONTRADA - "
             f"{caminho_thumbnail.name}"
         )
+
+        logger.info(
+            "Thumbnail encontrada | "
+            "video_id=%s | arquivo=%s",
+            video_id,
+            caminho_thumbnail.name,
+        )
+
     else:
         status_thumbnail = (
             "NÃO ENCONTRADA"
+        )
+
+        logger.info(
+            "Thumbnail não encontrada | "
+            "video_id=%s",
+            video_id,
         )
 
     caminho_local = preparar_proximo_video(
@@ -282,6 +384,12 @@ def processar_publicacao(
                 "\nPublicação cancelada."
             )
 
+            logger.info(
+                "Publicação cancelada pelo usuário | "
+                "video_id=%s",
+                video_id,
+            )
+
             excluir_arquivo_temporario(
                 caminho_local
             )
@@ -292,6 +400,12 @@ def processar_publicacao(
                 )
 
             return False
+
+    logger.info(
+        "Iniciando upload para YouTube | "
+        "video_id=%s",
+        video_id,
+    )
 
     youtube_id = publicar_video(
         caminho_video=caminho_local,
@@ -304,7 +418,22 @@ def processar_publicacao(
         print(
             "\nO upload não foi concluído."
         )
+
+        logger.error(
+            "Falha no upload para YouTube | "
+            "video_id=%s | arquivo=%s",
+            video_id,
+            nome_arquivo,
+        )
+
         return False
+
+    logger.info(
+        "Upload concluído | "
+        "video_id=%s | youtube_id=%s",
+        video_id,
+        youtube_id,
+    )
 
     registrado = registrar_video_publicado(
         video_id=video_id,
@@ -317,12 +446,43 @@ def processar_publicacao(
             "ao YouTube, mas houve erro "
             "ao atualizar videos.json."
         )
+
+        logger.error(
+            "Upload realizado mas controle não atualizado | "
+            "video_id=%s | youtube_id=%s",
+            video_id,
+            youtube_id,
+        )
+
         return False
+
+    logger.info(
+        "Controle atualizado | "
+        "video_id=%s | youtube_id=%s",
+        video_id,
+        youtube_id,
+    )
 
     playlist_ok = adicionar_video_playlist(
         youtube_id=youtube_id,
         playlist_id=playlist_id,
     )
+
+    if playlist_id:
+        if playlist_ok:
+            logger.info(
+                "Playlist aplicada | "
+                "video_id=%s | playlist=%s",
+                video_id,
+                nome_playlist,
+            )
+        else:
+            logger.warning(
+                "Falha ao aplicar playlist | "
+                "video_id=%s | playlist=%s",
+                video_id,
+                nome_playlist,
+            )
 
     if caminho_thumbnail:
         thumbnail_ok = (
@@ -334,9 +494,37 @@ def processar_publicacao(
     else:
         thumbnail_ok = True
 
+    if caminho_thumbnail:
+        if thumbnail_ok:
+            logger.info(
+                "Thumbnail aplicada | "
+                "video_id=%s",
+                video_id,
+            )
+        else:
+            logger.warning(
+                "Falha ao aplicar thumbnail | "
+                "video_id=%s | youtube_id=%s",
+                video_id,
+                youtube_id,
+            )
+
     movido = mover_video_para_publicados(
         drive_id=video["drive_id"]
     )
+
+    if movido:
+        logger.info(
+            "Vídeo movido no Drive | "
+            "video_id=%s | destino=Publicados",
+            video_id,
+        )
+    else:
+        logger.warning(
+            "Falha na movimentação do Drive | "
+            "video_id=%s",
+            video_id,
+        )
 
     if not movido:
         print(
@@ -439,6 +627,17 @@ def processar_publicacao(
         "========================================"
     )
 
+    logger.info(
+        "Publicação concluída | "
+        "video_id=%s | youtube_id=%s | "
+        "playlist_ok=%s | thumbnail_ok=%s | drive_ok=%s",
+        video_id,
+        youtube_id,
+        playlist_ok,
+        thumbnail_ok,
+        movido,
+    )
+
     return True
 
 
@@ -449,6 +648,11 @@ def publicar_proximo_video():
         print(
             "\nNenhum vídeo pendente encontrado."
         )
+
+        logger.info(
+            "Nenhum vídeo pendente encontrado"
+        )
+
         return
 
     privacidade = selecionar_privacidade()
@@ -515,10 +719,25 @@ def publicar_videos_em_lote():
         print(
             "\nPublicação em lote cancelada."
         )
+
+        logger.info(
+            "Publicação em lote cancelada pelo usuário | "
+            "quantidade=%s | privacidade=%s",
+            quantidade,
+            privacidade,
+        )
+
         return
 
     publicados = 0
     motivo_interrupcao = None
+
+    logger.info(
+        "Publicação em lote iniciada | "
+        "quantidade=%s | privacidade=%s",
+        quantidade,
+        privacidade,
+    )
 
     print(
         "\n===== INICIANDO PUBLICAÇÃO EM LOTE ====="
@@ -541,6 +760,12 @@ def publicar_videos_em_lote():
             motivo_interrupcao = (
                 "Não existem mais vídeos pendentes."
             )
+
+            logger.warning(
+                "Lote interrompido | "
+                "motivo=sem vídeos pendentes"
+            )
+
             break
 
         sucesso = processar_publicacao(
@@ -555,6 +780,16 @@ def publicar_videos_em_lote():
                 "O próximo vídeo não pôde ser publicado. "
                 "Verifique as mensagens apresentadas acima."
             )
+
+            logger.warning(
+                "Lote interrompido | "
+                "video_id=%s | "
+                "publicados=%s | solicitados=%s",
+                video_id,
+                publicados,
+                quantidade,
+            )
+
             break
 
         publicados += 1
@@ -575,6 +810,14 @@ def publicar_videos_em_lote():
         print(
             "Resultado   : lote concluído com sucesso"
         )
+
+        logger.info(
+            "Lote concluído | "
+            "solicitados=%s | publicados=%s",
+            quantidade,
+            publicados,
+        )
+
     else:
         print(
             "Resultado   : lote interrompido"
