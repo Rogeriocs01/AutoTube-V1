@@ -1,5 +1,7 @@
 from version import obter_identificacao
 
+from core.logger import obter_logger
+
 from core.projetos import (
     listar_projetos,
     mostrar_projeto_ativo,
@@ -32,6 +34,9 @@ from core.youtube import (
     listar_canais_youtube,
     listar_playlists_youtube,
 )
+
+
+logger = obter_logger()
 
 
 def exibir_opcoes():
@@ -77,6 +82,89 @@ def exibir_opcoes():
     print("11 - Mostrar projeto ativo")
 
     print("\n0 - Sair")
+
+
+def mostrar_erro_operacao(nome_operacao):
+    print(
+        "\n========================================"
+    )
+    print(
+        "       ERRO DURANTE A OPERAÇÃO"
+    )
+    print(
+        "========================================"
+    )
+    print(
+        f"Operação: {nome_operacao}"
+    )
+    print()
+    print(
+        "O AutoTube encontrou um erro, "
+        "mas continuará funcionando."
+    )
+    print(
+        "Os detalhes técnicos foram "
+        "registrados no arquivo de log."
+    )
+    print(
+        "========================================"
+    )
+
+    input(
+        "\nPressione ENTER para voltar ao menu..."
+    )
+
+
+def executar_operacao(
+    nome_operacao,
+    funcao,
+    *args,
+    **kwargs,
+):
+    try:
+        logger.info(
+            "Operação iniciada | operacao=%s",
+            nome_operacao,
+        )
+
+        resultado = funcao(
+            *args,
+            **kwargs,
+        )
+
+        logger.info(
+            "Operação finalizada | operacao=%s",
+            nome_operacao,
+        )
+
+        return resultado
+
+    except Exception:
+        logger.exception(
+            "Erro durante operação | operacao=%s",
+            nome_operacao,
+        )
+
+        mostrar_erro_operacao(
+            nome_operacao
+        )
+
+        return None
+
+
+def testar_localizacao_thumbnail():
+    nome_video = input(
+        "\nDigite o nome completo do vídeo: "
+    ).strip()
+
+    if nome_video:
+        testar_thumbnail_video(
+            nome_video
+        )
+    else:
+        print(
+            "\nNome do vídeo não informado."
+        )
 
 
 def testar_aplicacao_thumbnail():
@@ -128,6 +216,7 @@ def testar_aplicacao_thumbnail():
     print(
         "\nThumbnail preparada:"
     )
+
     print(
         caminho_thumbnail
     )
@@ -189,65 +278,104 @@ def iniciar():
         ).strip()
 
         if opcao == "1":
-            testar_conexao_drive()
+            executar_operacao(
+                "Testar conexão com Google Drive",
+                testar_conexao_drive,
+            )
 
         elif opcao == "2":
-            mostrar_videos_pendentes()
+            executar_operacao(
+                "Listar vídeos pendentes",
+                mostrar_videos_pendentes,
+            )
 
         elif opcao == "3":
-            criar_controle_videos()
+            executar_operacao(
+                "Sincronizar vídeos pendentes",
+                criar_controle_videos,
+            )
 
         elif opcao == "4":
-            mostrar_resumo_controle()
+            executar_operacao(
+                "Ver resumo do controle",
+                mostrar_resumo_controle,
+            )
 
         elif opcao == "5":
-            listar_canais_youtube()
+            executar_operacao(
+                "Listar canais do YouTube",
+                listar_canais_youtube,
+            )
 
         elif opcao == "6":
-            mostrar_proximo_video()
+            executar_operacao(
+                "Mostrar próximo vídeo",
+                mostrar_proximo_video,
+            )
 
         elif opcao == "7":
-            publicar_proximo_video()
+            executar_operacao(
+                "Publicar próximo vídeo",
+                publicar_proximo_video,
+            )
 
         elif opcao == "8":
-            publicar_videos_em_lote()
+            executar_operacao(
+                "Publicar vídeos em lote",
+                publicar_videos_em_lote,
+            )
 
         elif opcao == "9":
-            listar_projetos()
+            executar_operacao(
+                "Listar projetos",
+                listar_projetos,
+            )
 
         elif opcao == "10":
-            selecionar_projeto()
+            executar_operacao(
+                "Trocar projeto",
+                selecionar_projeto,
+            )
 
         elif opcao == "11":
-            mostrar_projeto_ativo()
+            executar_operacao(
+                "Mostrar projeto ativo",
+                mostrar_projeto_ativo,
+            )
 
         elif opcao == "12":
-            listar_playlists_youtube()
+            executar_operacao(
+                "Listar playlists do YouTube",
+                listar_playlists_youtube,
+            )
 
         elif opcao == "13":
-            publicar_video_escolhido()
+            executar_operacao(
+                "Escolher vídeo para publicar",
+                publicar_video_escolhido,
+            )
 
         elif opcao == "14":
-            nome_video = input(
-                "\nDigite o nome completo do vídeo: "
-            ).strip()
-
-            if nome_video:
-                testar_thumbnail_video(
-                    nome_video
-                )
-            else:
-                print(
-                    "\nNome do vídeo não informado."
-                )
+            executar_operacao(
+                "Testar localização de thumbnail",
+                testar_localizacao_thumbnail,
+            )
 
         elif opcao == "15":
-            testar_aplicacao_thumbnail()
+            executar_operacao(
+                "Testar aplicação de thumbnail",
+                testar_aplicacao_thumbnail,
+            )
 
         elif opcao == "0":
             print(
                 "\nSaindo do AutoTube..."
             )
+
+            logger.info(
+                "Saída solicitada pelo usuário"
+            )
+
             break
 
         else:
