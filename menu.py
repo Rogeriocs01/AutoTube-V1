@@ -1,6 +1,7 @@
 from version import obter_identificacao
 
 from core.logger import obter_logger
+from core.diagnostico import executar_diagnostico
 
 from core.projetos import (
     listar_projetos,
@@ -80,6 +81,9 @@ def exibir_opcoes():
     print("9 - Listar projetos")
     print("10 - Trocar projeto")
     print("11 - Mostrar projeto ativo")
+
+    print("\nSISTEMA")
+    print("16 - Diagnóstico do ambiente")
 
     print("\n0 - Sair")
 
@@ -365,6 +369,12 @@ def iniciar():
             executar_operacao(
                 "Testar aplicação de thumbnail",
                 testar_aplicacao_thumbnail,
+            )
+
+        elif opcao == "16":
+            executar_operacao(
+                "Diagnóstico do ambiente",
+                executar_diagnostico,
             )
 
         elif opcao == "0":
