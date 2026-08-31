@@ -55,3 +55,4 @@ Desktop.ini
 # Estado operacional do AutoTube
 dados/*/videos.json
 projetos/projeto_ativo.json
+dados/*/metadados.json
