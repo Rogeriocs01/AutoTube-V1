@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Optional
 
 
@@ -18,6 +18,9 @@ class ResultadoPublicacao:
 
     def __bool__(self):
         return self.sucesso
+
+    def para_dict(self):
+        return asdict(self)
 
     @classmethod
     def sucesso_publicacao(
