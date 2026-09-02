@@ -359,6 +359,7 @@ def publicar_video(
 
         return None
 
+
 def listar_playlists_youtube():
     projeto = obter_projeto_ativo()
 
@@ -445,6 +446,7 @@ def listar_playlists_youtube():
 
     return playlists
 
+
 def adicionar_video_playlist(
     youtube_id: str,
     playlist_id: str,
@@ -502,6 +504,7 @@ def adicionar_video_playlist(
 
         return False
 
+
 def definir_thumbnail_youtube(
     youtube_id: str,
     caminho_thumbnail: Path,
@@ -538,7 +541,9 @@ def definir_thumbnail_youtube(
         )
         return False
 
-    LIMITE_THUMBNAIL = 2 * 1024 * 1024
+    limite_thumbnail = (
+        2 * 1024 * 1024
+    )
 
     caminho_envio = caminho_thumbnail
     caminho_otimizado = None
@@ -559,7 +564,10 @@ def definir_thumbnail_youtube(
             f"{tamanho_mb:.2f} MB"
         )
 
-        if tamanho_original >= LIMITE_THUMBNAIL:
+        if (
+            tamanho_original
+            >= limite_thumbnail
+        ):
             print(
                 "\nThumbnail acima do limite "
                 "de 2 MB."
@@ -610,7 +618,7 @@ def definir_thumbnail_youtube(
 
                     if (
                         tamanho_otimizado
-                        < LIMITE_THUMBNAIL
+                        < limite_thumbnail
                     ):
                         break
 
@@ -633,7 +641,7 @@ def definir_thumbnail_youtube(
 
             if (
                 tamanho_otimizado
-                >= LIMITE_THUMBNAIL
+                >= limite_thumbnail
             ):
                 print(
                     "\nA thumbnail continuou "
@@ -791,73 +799,11 @@ def definir_thumbnail_youtube(
                     f"{erro}"
                 )
 
-    extensao = (
-        caminho_thumbnail.suffix.lower()
-    )
-
-    if extensao in {
-        ".jpg",
-        ".jpeg",
-    }:
-        mimetype = "image/jpeg"
-
-    elif extensao == ".png":
-        mimetype = "image/png"
-
-    else:
-        print(
-            "\nFormato de thumbnail "
-            "não suportado."
-        )
-        print(
-            "Use JPG, JPEG ou PNG."
-        )
-        return False
-
-    youtube = conectar_youtube()
-
-    if youtube is None:
-        print(
-            "\nNão foi possível conectar "
-            "ao YouTube para enviar "
-            "a thumbnail."
-        )
-        return False
-
-    midia = MediaFileUpload(
-        str(caminho_thumbnail),
-        mimetype=mimetype,
-        resumable=False,
-    )
-
-    try:
-        youtube.thumbnails().set(
-            videoId=youtube_id,
-            media_body=midia,
-        ).execute()
-
-        print(
-            "\nThumbnail definida "
-            "com sucesso."
-        )
-
-        return True
-
-    except HttpError as erro:
-        print(
-            "\nO vídeo foi publicado, "
-            "mas não foi possível definir "
-            "a thumbnail."
-        )
-
-        print(
-            f"Detalhes: {erro}"
-        )
-
-        return False
 
 def obter_canal_youtube_autenticado():
-    configuracao = obter_configuracao_youtube()
+    configuracao = (
+        obter_configuracao_youtube()
+    )
 
     if configuracao is None:
         return None
