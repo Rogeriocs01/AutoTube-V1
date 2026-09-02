@@ -62,3 +62,8 @@ build/
 dist/
 *.spec
 *.exe
+
+# Ambiente local da instalação
+ambiente.json
+
+
