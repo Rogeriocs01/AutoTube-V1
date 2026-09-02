@@ -23,6 +23,10 @@ from core.youtube import (
 from core.projetos import obter_projeto_ativo
 from core.logger import obter_logger
 
+from core.resultado_publicacao import (
+    ResultadoPublicacao,
+)
+
 
 logger = obter_logger()
 
@@ -151,7 +155,14 @@ def processar_publicacao(
             video_id,
         )
 
-        return False
+        return ResultadoPublicacao.falha(
+            mensagem=(
+                "Vídeo pendente sem nome "
+                "de arquivo"
+            ),
+            video_id=video_id,
+            etapa="validacao_video",
+        )
 
     logger.info(
         "Publicação iniciada | "
@@ -176,7 +187,11 @@ def processar_publicacao(
             video_id,
         )
 
-        return False
+        return ResultadoPublicacao.falha(
+            mensagem="Nenhum projeto ativo",
+            video_id=video_id,
+            etapa="projeto",
+        )
 
     logger.info(
         "Projeto identificado | projeto=%s",
@@ -200,7 +215,13 @@ def processar_publicacao(
             nome_arquivo,
         )
 
-        return False
+        return ResultadoPublicacao.falha(
+            mensagem=(
+                "Metadados não encontrados"
+            ),
+            video_id=video_id,
+            etapa="metadados",
+        )
 
     if not validar_canal_youtube():
         print(
@@ -215,7 +236,14 @@ def processar_publicacao(
             video_id,
         )
 
-        return False
+        return ResultadoPublicacao.falha(
+            mensagem=(
+                "Validação do canal "
+                "do YouTube falhou"
+            ),
+            video_id=video_id,
+            etapa="validacao_canal",
+        )
 
     canal = (
         obter_canal_youtube_autenticado()
@@ -235,7 +263,14 @@ def processar_publicacao(
             video_id,
         )
 
-        return False
+        return ResultadoPublicacao.falha(
+            mensagem=(
+                "Canal autenticado "
+                "não identificado"
+            ),
+            video_id=video_id,
+            etapa="canal",
+        )
 
     logger.info(
         "Canal confirmado | "
@@ -302,7 +337,14 @@ def processar_publicacao(
                 caminho_thumbnail
             )
 
-        return False
+        return ResultadoPublicacao.falha(
+            mensagem=(
+                "Não foi possível "
+                "preparar o vídeo"
+            ),
+            video_id=video_id,
+            etapa="download_video",
+        )
 
     nome_privacidade = (
         NOMES_PRIVACIDADE.get(
@@ -388,7 +430,14 @@ def processar_publicacao(
                     caminho_thumbnail
                 )
 
-            return False
+            return ResultadoPublicacao.falha(
+                mensagem=(
+                    "Publicação cancelada "
+                    "pelo usuário"
+                ),
+                video_id=video_id,
+                etapa="confirmacao",
+            )
 
     logger.info(
         "Iniciando upload para YouTube | "
@@ -415,7 +464,14 @@ def processar_publicacao(
             nome_arquivo,
         )
 
-        return False
+        return ResultadoPublicacao.falha(
+            mensagem=(
+                "Upload para o YouTube "
+                "não concluído"
+            ),
+            video_id=video_id,
+            etapa="upload",
+        )
 
     logger.info(
         "Upload concluído | "
@@ -444,7 +500,15 @@ def processar_publicacao(
             youtube_id,
         )
 
-        return False
+        return ResultadoPublicacao.falha(
+            mensagem=(
+                "Vídeo enviado ao YouTube, "
+                "mas o controle não foi atualizado"
+            ),
+            video_id=video_id,
+            youtube_id=youtube_id,
+            etapa="controle",
+        )
 
     logger.info(
         "Controle atualizado | "
@@ -640,7 +704,13 @@ def processar_publicacao(
         movido,
     )
 
-    return True
+    return ResultadoPublicacao.sucesso_publicacao(
+        video_id=video_id,
+        youtube_id=youtube_id,
+        playlist_ok=playlist_ok,
+        thumbnail_ok=thumbnail_ok,
+        drive_ok=movido,
+    )
 
 
 def publicar_proximo_video(
@@ -659,7 +729,12 @@ def publicar_proximo_video(
             "Nenhum vídeo pendente encontrado"
         )
 
-        return False
+        return ResultadoPublicacao.falha(
+            mensagem=(
+                "Nenhum vídeo pendente encontrado"
+            ),
+            etapa="selecao_video",
+        )
 
     return processar_publicacao(
         video_id=video_id,
@@ -677,7 +752,12 @@ def publicar_video_escolhido(
     )
 
     if video is None:
-        return False
+        return ResultadoPublicacao.falha(
+            mensagem=(
+                "Nenhum vídeo selecionado"
+            ),
+            etapa="selecao_video",
+        )
 
     return processar_publicacao(
         video_id=video_id,
@@ -730,24 +810,32 @@ def publicar_videos_em_lote(
 
             break
 
-        sucesso = processar_publicacao(
+        resultado = processar_publicacao(
             video_id=video_id,
             video=video,
             privacidade=privacidade,
             pedir_confirmacao=False,
         )
 
-        if not sucesso:
+        if not resultado:
             motivo_interrupcao = (
-                "O próximo vídeo não pôde ser publicado. "
-                "Verifique as mensagens apresentadas acima."
+                resultado.mensagem
+                or
+                (
+                    "O próximo vídeo não pôde "
+                    "ser publicado."
+                )
             )
 
             logger.warning(
                 "Lote interrompido | "
                 "video_id=%s | "
+                "etapa=%s | "
+                "motivo=%s | "
                 "publicados=%s | solicitados=%s",
                 video_id,
+                resultado.etapa,
+                resultado.mensagem,
                 publicados,
                 quantidade,
             )
