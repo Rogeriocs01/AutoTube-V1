@@ -1,10 +1,10 @@
-import json
+﻿import json
 from pathlib import Path
 
-from config import BASE_DIR
+from config import BASE_DIR, PASTA_DADOS, PASTA_PROJETOS
 
 
-PASTA_PROJETOS = BASE_DIR / "projetos"
+# PASTA_PROJETOS definida em config.py
 ARQUIVO_PROJETOS = PASTA_PROJETOS / "projetos.json"
 ARQUIVO_PROJETO_ATIVO = PASTA_PROJETOS / "projeto_ativo.json"
 
@@ -222,13 +222,13 @@ def selecionar_projeto():
     ).strip()
 
     if not escolha.isdigit():
-        print("\nOpção inválida.")
+        print("\nOpÃ§Ã£o invÃ¡lida.")
         return
 
     indice = int(escolha) - 1
 
     if indice < 0 or indice >= len(lista_ids):
-        print("\nOpção inválida.")
+        print("\nOpÃ§Ã£o invÃ¡lida.")
         return
 
     projeto_id = lista_ids[indice]
@@ -249,7 +249,7 @@ def obter_pasta_dados_projeto():
             "Nenhum projeto ativo foi definido."
         )
 
-    pasta = BASE_DIR / "dados" / projeto_id
+    pasta = PASTA_DADOS / projeto_id
 
     pasta.mkdir(
         parents=True,
