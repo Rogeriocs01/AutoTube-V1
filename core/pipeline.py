@@ -34,59 +34,9 @@ NOMES_PRIVACIDADE = {
 }
 
 
-def selecionar_privacidade():
-    while True:
-        print("\n===== VISIBILIDADE =====")
-        print("1 - Privado")
-        print("2 - Público")
-        print("3 - Não listado")
-        print("0 - Cancelar")
-        print("========================")
-
-        opcao = input("\nEscolha uma opção: ").strip()
-
-        if opcao == "1":
-            return "private"
-
-        if opcao == "2":
-            return "public"
-
-        if opcao == "3":
-            return "unlisted"
-
-        if opcao == "0":
-            print("\nOperação cancelada.")
-            logger.info("Seleção de privacidade cancelada")
-            return None
-
-        print("\nOpção inválida. Escolha 1, 2, 3 ou 0.")
-
-
-def selecionar_quantidade_lote():
-    while True:
-        print("\n===== TAMANHO DO LOTE =====")
-        print("1 - Publicar 2 vídeos")
-        print("2 - Publicar 3 vídeos")
-        print("0 - Cancelar")
-        print("===========================")
-
-        opcao = input("\nEscolha uma opção: ").strip()
-
-        if opcao == "1":
-            return 2
-
-        if opcao == "2":
-            return 3
-
-        if opcao == "0":
-            print("\nPublicação em lote cancelada.")
-            logger.info("Publicação em lote cancelada")
-            return None
-
-        print("\nOpção inválida. Escolha 1, 2 ou 0.")
-
-
-def excluir_arquivo_temporario(caminho_local):
+def excluir_arquivo_temporario(
+    caminho_local,
+):
     if caminho_local is None:
         return
 
@@ -95,11 +45,15 @@ def excluir_arquivo_temporario(caminho_local):
 
     try:
         caminho_local.unlink()
-        print("Arquivo temporário excluído.")
+
+        print(
+            "Arquivo temporário excluído."
+        )
 
     except OSError as erro:
         print(
-            "Não foi possível excluir o arquivo temporário: "
+            "Não foi possível excluir "
+            "o arquivo temporário: "
             f"{erro}"
         )
 
@@ -111,11 +65,25 @@ def excluir_arquivo_temporario(caminho_local):
         )
 
 
-def preparar_proximo_video(video_id, video):
-    print("\n===== PREPARANDO PRÓXIMO VÍDEO =====")
-    print(f"ID interno : {video_id}")
-    print(f"Arquivo    : {video.get('arquivo')}")
-    print("====================================")
+def preparar_proximo_video(
+    video_id,
+    video,
+):
+    print(
+        "\n===== PREPARANDO PRÓXIMO VÍDEO ====="
+    )
+
+    print(
+        f"ID interno : {video_id}"
+    )
+
+    print(
+        f"Arquivo    : {video.get('arquivo')}"
+    )
+
+    print(
+        "===================================="
+    )
 
     caminho_local = baixar_video(
         drive_id=video["drive_id"],
@@ -123,7 +91,9 @@ def preparar_proximo_video(video_id, video):
     )
 
     if caminho_local is None:
-        print("\nNão foi possível preparar o vídeo.")
+        print(
+            "\nNão foi possível preparar o vídeo."
+        )
 
         logger.error(
             "Falha ao baixar vídeo | "
@@ -134,8 +104,13 @@ def preparar_proximo_video(video_id, video):
 
         return None
 
-    print("\nVídeo preparado com sucesso.")
-    print(f"Local: {caminho_local}")
+    print(
+        "\nVídeo preparado com sucesso."
+    )
+
+    print(
+        f"Local: {caminho_local}"
+    )
 
     logger.info(
         "Vídeo preparado | "
@@ -154,7 +129,10 @@ def processar_publicacao(
     pedir_confirmacao=True,
 ):
     nome_arquivo = str(
-        video.get("arquivo", "")
+        video.get(
+            "arquivo",
+            "",
+        )
     ).strip()
 
     if not nome_arquivo:
@@ -162,7 +140,10 @@ def processar_publicacao(
             "\nO vídeo pendente não possui "
             "nome de arquivo."
         )
-        print(f"ID interno: {video_id}")
+
+        print(
+            f"ID interno: {video_id}"
+        )
 
         logger.error(
             "Vídeo pendente sem nome de arquivo | "
@@ -174,7 +155,8 @@ def processar_publicacao(
 
     logger.info(
         "Publicação iniciada | "
-        "video_id=%s | arquivo=%s | privacidade=%s",
+        "video_id=%s | arquivo=%s | "
+        "privacidade=%s",
         video_id,
         nome_arquivo,
         privacidade,
@@ -183,7 +165,9 @@ def processar_publicacao(
     projeto = obter_projeto_ativo()
 
     if projeto is None:
-        print("\nNenhum projeto ativo.")
+        print(
+            "\nNenhum projeto ativo."
+        )
 
         logger.error(
             "Publicação interrompida | "
@@ -233,7 +217,9 @@ def processar_publicacao(
 
         return False
 
-    canal = obter_canal_youtube_autenticado()
+    canal = (
+        obter_canal_youtube_autenticado()
+    )
 
     if canal is None:
         print(
@@ -243,7 +229,8 @@ def processar_publicacao(
 
         logger.error(
             "Publicação interrompida | "
-            "motivo=canal autenticado não identificado | "
+            "motivo=canal autenticado "
+            "não identificado | "
             "video_id=%s",
             video_id,
         )
@@ -327,9 +314,11 @@ def processar_publicacao(
     print(
         "\n========================================"
     )
+
     print(
         "        CONFIRMAÇÃO DE PUBLICAÇÃO"
     )
+
     print(
         "========================================"
     )
@@ -448,7 +437,8 @@ def processar_publicacao(
         )
 
         logger.error(
-            "Upload realizado mas controle não atualizado | "
+            "Upload realizado mas controle "
+            "não atualizado | "
             "video_id=%s | youtube_id=%s",
             video_id,
             youtube_id,
@@ -476,6 +466,7 @@ def processar_publicacao(
                 video_id,
                 nome_playlist,
             )
+
         else:
             logger.warning(
                 "Falha ao aplicar playlist | "
@@ -491,6 +482,7 @@ def processar_publicacao(
                 caminho_thumbnail=caminho_thumbnail,
             )
         )
+
     else:
         thumbnail_ok = True
 
@@ -501,6 +493,7 @@ def processar_publicacao(
                 "video_id=%s",
                 video_id,
             )
+
         else:
             logger.warning(
                 "Falha ao aplicar thumbnail | "
@@ -519,6 +512,7 @@ def processar_publicacao(
             "video_id=%s | destino=Publicados",
             video_id,
         )
+
     else:
         logger.warning(
             "Falha na movimentação do Drive | "
@@ -545,9 +539,11 @@ def processar_publicacao(
     print(
         "\n========================================"
     )
+
     print(
         "          PROCESSO CONCLUÍDO"
     )
+
     print(
         "========================================"
     )
@@ -586,11 +582,13 @@ def processar_publicacao(
                 f"Playlist     : "
                 f"{nome_playlist} - OK"
             )
+
         else:
             print(
                 f"Playlist     : "
                 f"{nome_playlist} - FALHOU"
             )
+
     else:
         print(
             "Playlist     : não utilizada"
@@ -601,10 +599,12 @@ def processar_publicacao(
             print(
                 "Thumbnail    : OK"
             )
+
         else:
             print(
                 "Thumbnail    : FALHOU"
             )
+
     else:
         print(
             "Thumbnail    : não utilizada"
@@ -614,6 +614,7 @@ def processar_publicacao(
         print(
             "Drive        : Publicados - OK"
         )
+
     else:
         print(
             "Drive        : movimentação FALHOU"
@@ -630,7 +631,8 @@ def processar_publicacao(
     logger.info(
         "Publicação concluída | "
         "video_id=%s | youtube_id=%s | "
-        "playlist_ok=%s | thumbnail_ok=%s | drive_ok=%s",
+        "playlist_ok=%s | thumbnail_ok=%s | "
+        "drive_ok=%s",
         video_id,
         youtube_id,
         playlist_ok,
@@ -641,8 +643,12 @@ def processar_publicacao(
     return True
 
 
-def publicar_proximo_video():
-    video_id, video = obter_proximo_video_pendente()
+def publicar_proximo_video(
+    privacidade,
+):
+    video_id, video = (
+        obter_proximo_video_pendente()
+    )
 
     if video is None:
         print(
@@ -653,14 +659,9 @@ def publicar_proximo_video():
             "Nenhum vídeo pendente encontrado"
         )
 
-        return
+        return False
 
-    privacidade = selecionar_privacidade()
-
-    if privacidade is None:
-        return
-
-    processar_publicacao(
+    return processar_publicacao(
         video_id=video_id,
         video=video,
         privacidade=privacidade,
@@ -668,20 +669,17 @@ def publicar_proximo_video():
     )
 
 
-def publicar_video_escolhido():
+def publicar_video_escolhido(
+    privacidade,
+):
     video_id, video = (
         selecionar_video_pendente()
     )
 
     if video is None:
-        return
+        return False
 
-    privacidade = selecionar_privacidade()
-
-    if privacidade is None:
-        return
-
-    processar_publicacao(
+    return processar_publicacao(
         video_id=video_id,
         video=video,
         privacidade=privacidade,
@@ -689,46 +687,10 @@ def publicar_video_escolhido():
     )
 
 
-def publicar_videos_em_lote():
-    quantidade = selecionar_quantidade_lote()
-
-    if quantidade is None:
-        return
-
-    privacidade = selecionar_privacidade()
-
-    if privacidade is None:
-        return
-
-    nome_privacidade = NOMES_PRIVACIDADE.get(
-        privacidade,
-        privacidade.upper(),
-    )
-
-    print("\n===== CONFIRMAÇÃO DO LOTE =====")
-    print(f"Quantidade   : {quantidade} vídeos")
-    print(f"Visibilidade : {nome_privacidade}")
-    print("===============================")
-
-    confirmar = input(
-        f"\nPublicar {quantidade} vídeos como "
-        f"{nome_privacidade}? [S/N]: "
-    ).strip().lower()
-
-    if confirmar != "s":
-        print(
-            "\nPublicação em lote cancelada."
-        )
-
-        logger.info(
-            "Publicação em lote cancelada pelo usuário | "
-            "quantidade=%s | privacidade=%s",
-            quantidade,
-            privacidade,
-        )
-
-        return
-
+def publicar_videos_em_lote(
+    quantidade,
+    privacidade,
+):
     publicados = 0
     motivo_interrupcao = None
 
@@ -822,6 +784,7 @@ def publicar_videos_em_lote():
         print(
             "Resultado   : lote interrompido"
         )
+
         print(
             f"Motivo      : {motivo_interrupcao}"
         )
@@ -829,3 +792,5 @@ def publicar_videos_em_lote():
     print(
         "=========================="
     )
+
+    return publicados

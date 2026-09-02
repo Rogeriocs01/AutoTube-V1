@@ -40,12 +40,27 @@ from core.youtube import (
 logger = obter_logger()
 
 
+NOMES_PRIVACIDADE = {
+    "private": "PRIVADO",
+    "public": "PÚBLICO",
+    "unlisted": "NÃO LISTADO",
+}
+
+
 def exibir_opcoes():
     identificacao = obter_identificacao()
 
-    print("\n========================================")
-    print(f"      {identificacao}")
-    print("========================================")
+    print(
+        "\n========================================"
+    )
+
+    print(
+        f"      {identificacao}"
+    )
+
+    print(
+        "========================================"
+    )
 
     projeto = obter_projeto_ativo()
 
@@ -54,62 +69,136 @@ def exibir_opcoes():
             f"Projeto ativo: "
             f"{projeto['nome']}"
         )
+
     else:
-        print("Projeto ativo: NENHUM")
+        print(
+            "Projeto ativo: NENHUM"
+        )
 
-    print("\nDRIVE")
-    print("1 - Testar conexão com Google Drive")
-    print("2 - Listar vídeos pendentes")
-    print("14 - Testar localização de thumbnail")
+    print(
+        "\nDRIVE"
+    )
 
-    print("\nCONTROLE")
-    print("3 - Sincronizar vídeos pendentes")
-    print("4 - Ver resumo do controle")
+    print(
+        "1 - Testar conexão com Google Drive"
+    )
 
-    print("\nYOUTUBE")
-    print("5 - Listar canais do YouTube")
-    print("6 - Mostrar próximo vídeo")
-    print("12 - Listar playlists do YouTube")
-    print("15 - Testar aplicação de thumbnail")
+    print(
+        "2 - Listar vídeos pendentes"
+    )
 
-    print("\nPUBLICAÇÃO")
-    print("7 - Publicar próximo vídeo")
-    print("8 - Publicar vídeos em lote")
-    print("13 - Escolher vídeo para publicar")
+    print(
+        "14 - Testar localização de thumbnail"
+    )
 
-    print("\nPROJETOS")
-    print("9 - Listar projetos")
-    print("10 - Trocar projeto")
-    print("11 - Mostrar projeto ativo")
+    print(
+        "\nCONTROLE"
+    )
 
-    print("\nSISTEMA")
-    print("16 - Diagnóstico do ambiente")
+    print(
+        "3 - Sincronizar vídeos pendentes"
+    )
 
-    print("\n0 - Sair")
+    print(
+        "4 - Ver resumo do controle"
+    )
+
+    print(
+        "\nYOUTUBE"
+    )
+
+    print(
+        "5 - Listar canais do YouTube"
+    )
+
+    print(
+        "6 - Mostrar próximo vídeo"
+    )
+
+    print(
+        "12 - Listar playlists do YouTube"
+    )
+
+    print(
+        "15 - Testar aplicação de thumbnail"
+    )
+
+    print(
+        "\nPUBLICAÇÃO"
+    )
+
+    print(
+        "7 - Publicar próximo vídeo"
+    )
+
+    print(
+        "8 - Publicar vídeos em lote"
+    )
+
+    print(
+        "13 - Escolher vídeo para publicar"
+    )
+
+    print(
+        "\nPROJETOS"
+    )
+
+    print(
+        "9 - Listar projetos"
+    )
+
+    print(
+        "10 - Trocar projeto"
+    )
+
+    print(
+        "11 - Mostrar projeto ativo"
+    )
+
+    print(
+        "\nSISTEMA"
+    )
+
+    print(
+        "16 - Diagnóstico do ambiente"
+    )
+
+    print(
+        "\n0 - Sair"
+    )
 
 
-def mostrar_erro_operacao(nome_operacao):
+def mostrar_erro_operacao(
+    nome_operacao,
+):
     print(
         "\n========================================"
     )
+
     print(
         "       ERRO DURANTE A OPERAÇÃO"
     )
+
     print(
         "========================================"
     )
+
     print(
         f"Operação: {nome_operacao}"
     )
+
     print()
+
     print(
         "O AutoTube encontrou um erro, "
         "mas continuará funcionando."
     )
+
     print(
         "Os detalhes técnicos foram "
         "registrados no arquivo de log."
     )
+
     print(
         "========================================"
     )
@@ -156,6 +245,201 @@ def executar_operacao(
         return None
 
 
+def selecionar_privacidade():
+    while True:
+        print(
+            "\n===== VISIBILIDADE ====="
+        )
+
+        print(
+            "1 - Privado"
+        )
+
+        print(
+            "2 - Público"
+        )
+
+        print(
+            "3 - Não listado"
+        )
+
+        print(
+            "0 - Cancelar"
+        )
+
+        print(
+            "========================"
+        )
+
+        opcao = input(
+            "\nEscolha uma opção: "
+        ).strip()
+
+        if opcao == "1":
+            return "private"
+
+        if opcao == "2":
+            return "public"
+
+        if opcao == "3":
+            return "unlisted"
+
+        if opcao == "0":
+            print(
+                "\nOperação cancelada."
+            )
+
+            logger.info(
+                "Seleção de privacidade cancelada"
+            )
+
+            return None
+
+        print(
+            "\nOpção inválida. "
+            "Escolha 1, 2, 3 ou 0."
+        )
+
+
+def selecionar_quantidade_lote():
+    while True:
+        print(
+            "\n===== TAMANHO DO LOTE ====="
+        )
+
+        print(
+            "1 - Publicar 2 vídeos"
+        )
+
+        print(
+            "2 - Publicar 3 vídeos"
+        )
+
+        print(
+            "0 - Cancelar"
+        )
+
+        print(
+            "==========================="
+        )
+
+        opcao = input(
+            "\nEscolha uma opção: "
+        ).strip()
+
+        if opcao == "1":
+            return 2
+
+        if opcao == "2":
+            return 3
+
+        if opcao == "0":
+            print(
+                "\nPublicação em lote cancelada."
+            )
+
+            logger.info(
+                "Publicação em lote cancelada"
+            )
+
+            return None
+
+        print(
+            "\nOpção inválida. "
+            "Escolha 1, 2 ou 0."
+        )
+
+
+def publicar_proximo_video_cli():
+    privacidade = (
+        selecionar_privacidade()
+    )
+
+    if privacidade is None:
+        return
+
+    publicar_proximo_video(
+        privacidade=privacidade,
+    )
+
+
+def publicar_video_escolhido_cli():
+    privacidade = (
+        selecionar_privacidade()
+    )
+
+    if privacidade is None:
+        return
+
+    publicar_video_escolhido(
+        privacidade=privacidade,
+    )
+
+
+def publicar_videos_em_lote_cli():
+    quantidade = (
+        selecionar_quantidade_lote()
+    )
+
+    if quantidade is None:
+        return
+
+    privacidade = (
+        selecionar_privacidade()
+    )
+
+    if privacidade is None:
+        return
+
+    nome_privacidade = (
+        NOMES_PRIVACIDADE.get(
+            privacidade,
+            privacidade.upper(),
+        )
+    )
+
+    print(
+        "\n===== CONFIRMAÇÃO DO LOTE ====="
+    )
+
+    print(
+        f"Quantidade   : {quantidade} vídeos"
+    )
+
+    print(
+        f"Visibilidade : {nome_privacidade}"
+    )
+
+    print(
+        "==============================="
+    )
+
+    confirmar = input(
+        f"\nPublicar {quantidade} vídeos como "
+        f"{nome_privacidade}? [S/N]: "
+    ).strip().lower()
+
+    if confirmar != "s":
+        print(
+            "\nPublicação em lote cancelada."
+        )
+
+        logger.info(
+            "Publicação em lote cancelada "
+            "pelo usuário | "
+            "quantidade=%s | privacidade=%s",
+            quantidade,
+            privacidade,
+        )
+
+        return
+
+    publicar_videos_em_lote(
+        quantidade=quantidade,
+        privacidade=privacidade,
+    )
+
+
 def testar_localizacao_thumbnail():
     nome_video = input(
         "\nDigite o nome completo do vídeo: "
@@ -165,6 +449,7 @@ def testar_localizacao_thumbnail():
         testar_thumbnail_video(
             nome_video
         )
+
     else:
         print(
             "\nNome do vídeo não informado."
@@ -175,9 +460,11 @@ def testar_aplicacao_thumbnail():
     print(
         "\n========================================"
     )
+
     print(
         "      TESTE DE THUMBNAIL NO YOUTUBE"
     )
+
     print(
         "========================================"
     )
@@ -190,6 +477,7 @@ def testar_aplicacao_thumbnail():
         print(
             "\nNome do vídeo não informado."
         )
+
         return
 
     youtube_id = input(
@@ -200,6 +488,7 @@ def testar_aplicacao_thumbnail():
         print(
             "\nYouTube ID não informado."
         )
+
         return
 
     print(
@@ -215,6 +504,7 @@ def testar_aplicacao_thumbnail():
             "\nNão foi possível localizar "
             "ou baixar a thumbnail."
         )
+
         return
 
     print(
@@ -254,9 +544,11 @@ def testar_aplicacao_thumbnail():
         print(
             "\n========================================"
         )
+
         print(
             "THUMBNAIL APLICADA COM SUCESSO"
         )
+
         print(
             "========================================"
         )
@@ -265,9 +557,11 @@ def testar_aplicacao_thumbnail():
         print(
             "\n========================================"
         )
+
         print(
             "FALHA AO APLICAR THUMBNAIL"
         )
+
         print(
             "========================================"
         )
@@ -320,13 +614,13 @@ def iniciar():
         elif opcao == "7":
             executar_operacao(
                 "Publicar próximo vídeo",
-                publicar_proximo_video,
+                publicar_proximo_video_cli,
             )
 
         elif opcao == "8":
             executar_operacao(
                 "Publicar vídeos em lote",
-                publicar_videos_em_lote,
+                publicar_videos_em_lote_cli,
             )
 
         elif opcao == "9":
@@ -356,7 +650,7 @@ def iniciar():
         elif opcao == "13":
             executar_operacao(
                 "Escolher vídeo para publicar",
-                publicar_video_escolhido,
+                publicar_video_escolhido_cli,
             )
 
         elif opcao == "14":
