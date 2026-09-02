@@ -1,10 +1,10 @@
-import json
+﻿import json
 
 from config import BASE_DIR
 
 
 APP_NAME = "AutoTube"
-APP_VERSION = "1.1.1"
+APP_VERSION = "1.1.2"
 
 ARQUIVO_AMBIENTE = (
     BASE_DIR
@@ -14,9 +14,9 @@ ARQUIVO_AMBIENTE = (
 
 def obter_ambiente():
     """
-    Obtém o ambiente local da instalação.
+    ObtÃ©m o ambiente local da instalaÃ§Ã£o.
 
-    O arquivo ambiente.json não é versionado.
+    O arquivo ambiente.json nÃ£o Ã© versionado.
 
     Exemplos:
 
@@ -37,7 +37,7 @@ def obter_ambiente():
     try:
         dados = json.loads(
             ARQUIVO_AMBIENTE.read_text(
-                encoding="utf-8"
+                encoding="utf-8-sig"
             )
         )
 
@@ -75,5 +75,6 @@ def obter_identificacao():
 
     return (
         f"{APP_NAME} V{versao} "
-        f"— {ambiente}"
+        f"- {ambiente}"
     )
+
