@@ -39,7 +39,6 @@ def salvar_projeto(
                 data_atualizacao
             )
             VALUES (?, ?, ?, ?, ?, ?, ?)
-
             ON CONFLICT(id)
             DO UPDATE SET
                 nome = excluded.nome,
@@ -163,7 +162,6 @@ def salvar_conteudo(
                 data_atualizacao
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-
             ON CONFLICT(id)
             DO UPDATE SET
                 projeto_id = excluded.projeto_id,
@@ -329,10 +327,15 @@ def salvar_metadados(
     playlist_nome=None,
     idioma=None,
     categoria=None,
+    thumbnail_drive_id=None,
+    thumbnail_nome_arquivo=None,
 ):
     """
     Cria ou atualiza os metadados
     de um conteúdo.
+
+    Também armazena a referência
+    da thumbnail vinculada ao conteúdo.
     """
 
     conexao = conectar_banco()
@@ -349,11 +352,12 @@ def salvar_metadados(
                 playlist_nome,
                 idioma,
                 categoria,
+                thumbnail_drive_id,
+                thumbnail_nome_arquivo,
                 data_criacao,
                 data_atualizacao
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(conteudo_id)
             DO UPDATE SET
                 titulo = excluded.titulo,
@@ -363,6 +367,8 @@ def salvar_metadados(
                 playlist_nome = excluded.playlist_nome,
                 idioma = excluded.idioma,
                 categoria = excluded.categoria,
+                thumbnail_drive_id = excluded.thumbnail_drive_id,
+                thumbnail_nome_arquivo = excluded.thumbnail_nome_arquivo,
                 data_atualizacao = excluded.data_atualizacao;
             """,
             (
@@ -374,6 +380,8 @@ def salvar_metadados(
                 playlist_nome,
                 idioma,
                 categoria,
+                thumbnail_drive_id,
+                thumbnail_nome_arquivo,
                 agora_iso(),
                 agora_iso(),
             ),
@@ -389,7 +397,8 @@ def obter_metadados(
     conteudo_id,
 ):
     """
-    Retorna os metadados de um conteúdo.
+    Retorna os metadados de um conteúdo,
+    incluindo a referência da thumbnail.
     """
 
     conexao = conectar_banco()

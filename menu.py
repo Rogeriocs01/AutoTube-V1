@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 from version import obter_identificacao
 
 from core.logger import obter_logger
@@ -34,6 +36,14 @@ from core.youtube import (
     definir_thumbnail_youtube,
     listar_canais_youtube,
     listar_playlists_youtube,
+)
+
+from core.sincronizacao_db import (
+    sincronizar_videos_pendentes_db,
+)
+
+from ferramentas.gerenciar_conteudos_db import (
+    iniciar as iniciar_gerenciador_conteudos,
 )
 
 
@@ -88,19 +98,27 @@ def exibir_opcoes():
     )
 
     print(
-        "14 - Testar localização de thumbnail"
+        "\nCONTEÚDOS"
     )
 
     print(
-        "\nCONTROLE"
+        "3 - Sincronizar Drive → Banco"
     )
 
     print(
-        "3 - Sincronizar vídeos pendentes"
+        "4 - Gerenciar conteúdos"
     )
 
     print(
-        "4 - Ver resumo do controle"
+        "\nCONTROLE LEGADO"
+    )
+
+    print(
+        "5 - Sincronizar vídeos pendentes (JSON)"
+    )
+
+    print(
+        "6 - Ver resumo do controle"
     )
 
     print(
@@ -108,19 +126,15 @@ def exibir_opcoes():
     )
 
     print(
-        "5 - Listar canais do YouTube"
+        "7 - Listar canais do YouTube"
     )
 
     print(
-        "6 - Mostrar próximo vídeo"
+        "8 - Mostrar próximo vídeo"
     )
 
     print(
-        "12 - Listar playlists do YouTube"
-    )
-
-    print(
-        "15 - Testar aplicação de thumbnail"
+        "9 - Listar playlists do YouTube"
     )
 
     print(
@@ -128,15 +142,15 @@ def exibir_opcoes():
     )
 
     print(
-        "7 - Publicar próximo vídeo"
+        "10 - Publicar próximo vídeo"
     )
 
     print(
-        "8 - Publicar vídeos em lote"
+        "11 - Publicar vídeos em lote"
     )
 
     print(
-        "13 - Escolher vídeo para publicar"
+        "12 - Escolher vídeo para publicar"
     )
 
     print(
@@ -144,15 +158,15 @@ def exibir_opcoes():
     )
 
     print(
-        "9 - Listar projetos"
+        "13 - Listar projetos"
     )
 
     print(
-        "10 - Trocar projeto"
+        "14 - Trocar projeto"
     )
 
     print(
-        "11 - Mostrar projeto ativo"
+        "15 - Mostrar projeto ativo"
     )
 
     print(
@@ -440,6 +454,11 @@ def publicar_videos_em_lote_cli():
     )
 
 
+# =========================================================
+# FUNÇÕES LEGADAS DE TESTE DE THUMBNAIL
+# Mantidas temporariamente fora do menu principal.
+# =========================================================
+
 def testar_localizacao_thumbnail():
     nome_video = input(
         "\nDigite o nome completo do vídeo: "
@@ -589,80 +608,80 @@ def iniciar():
 
         elif opcao == "3":
             executar_operacao(
-                "Sincronizar vídeos pendentes",
-                criar_controle_videos,
+                "Sincronizar Drive com banco",
+                sincronizar_videos_pendentes_db,
             )
 
         elif opcao == "4":
+            executar_operacao(
+                "Gerenciar conteúdos",
+                iniciar_gerenciador_conteudos,
+            )
+
+        elif opcao == "5":
+            executar_operacao(
+                "Sincronizar vídeos pendentes - legado",
+                criar_controle_videos,
+            )
+
+        elif opcao == "6":
             executar_operacao(
                 "Ver resumo do controle",
                 mostrar_resumo_controle,
             )
 
-        elif opcao == "5":
+        elif opcao == "7":
             executar_operacao(
                 "Listar canais do YouTube",
                 listar_canais_youtube,
             )
 
-        elif opcao == "6":
+        elif opcao == "8":
             executar_operacao(
                 "Mostrar próximo vídeo",
                 mostrar_proximo_video,
             )
 
-        elif opcao == "7":
-            executar_operacao(
-                "Publicar próximo vídeo",
-                publicar_proximo_video_cli,
-            )
-
-        elif opcao == "8":
-            executar_operacao(
-                "Publicar vídeos em lote",
-                publicar_videos_em_lote_cli,
-            )
-
         elif opcao == "9":
-            executar_operacao(
-                "Listar projetos",
-                listar_projetos,
-            )
-
-        elif opcao == "10":
-            executar_operacao(
-                "Trocar projeto",
-                selecionar_projeto,
-            )
-
-        elif opcao == "11":
-            executar_operacao(
-                "Mostrar projeto ativo",
-                mostrar_projeto_ativo,
-            )
-
-        elif opcao == "12":
             executar_operacao(
                 "Listar playlists do YouTube",
                 listar_playlists_youtube,
             )
 
-        elif opcao == "13":
+        elif opcao == "10":
+            executar_operacao(
+                "Publicar próximo vídeo",
+                publicar_proximo_video_cli,
+            )
+
+        elif opcao == "11":
+            executar_operacao(
+                "Publicar vídeos em lote",
+                publicar_videos_em_lote_cli,
+            )
+
+        elif opcao == "12":
             executar_operacao(
                 "Escolher vídeo para publicar",
                 publicar_video_escolhido_cli,
             )
 
+        elif opcao == "13":
+            executar_operacao(
+                "Listar projetos",
+                listar_projetos,
+            )
+
         elif opcao == "14":
             executar_operacao(
-                "Testar localização de thumbnail",
-                testar_localizacao_thumbnail,
+                "Trocar projeto",
+                selecionar_projeto,
             )
 
         elif opcao == "15":
             executar_operacao(
-                "Testar aplicação de thumbnail",
-                testar_aplicacao_thumbnail,
+                "Mostrar projeto ativo",
+                mostrar_projeto_ativo,
             )
 
         elif opcao == "16":

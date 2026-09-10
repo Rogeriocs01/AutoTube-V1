@@ -35,6 +35,89 @@ def conectar_banco():
     return conexao
 
 
+def obter_colunas_tabela(
+    conexao,
+    nome_tabela,
+):
+    """
+    Retorna os nomes das colunas
+    existentes em uma tabela.
+    """
+
+    cursor = conexao.execute(
+        f"""
+        PRAGMA table_info(
+            {nome_tabela}
+        );
+        """
+    )
+
+    return {
+        linha["name"]
+        for linha in cursor.fetchall()
+    }
+
+
+def garantir_coluna(
+    conexao,
+    nome_tabela,
+    nome_coluna,
+    definicao,
+):
+    """
+    Adiciona uma coluna somente
+    se ela ainda não existir.
+
+    Permite evoluir o banco existente
+    sem apagar os dados atuais.
+    """
+
+    colunas = obter_colunas_tabela(
+        conexao,
+        nome_tabela,
+    )
+
+    if nome_coluna in colunas:
+        return False
+
+    conexao.execute(
+        f"""
+        ALTER TABLE {nome_tabela}
+        ADD COLUMN {nome_coluna}
+        {definicao};
+        """
+    )
+
+    return True
+
+
+def atualizar_schema_existente(
+    conexao,
+):
+    """
+    Executa pequenas migrações necessárias
+    para bancos já existentes.
+
+    V1.2:
+    adiciona informações da thumbnail
+    aos metadados do conteúdo.
+    """
+
+    garantir_coluna(
+        conexao=conexao,
+        nome_tabela="metadados",
+        nome_coluna="thumbnail_drive_id",
+        definicao="TEXT",
+    )
+
+    garantir_coluna(
+        conexao=conexao,
+        nome_tabela="metadados",
+        nome_coluna="thumbnail_nome_arquivo",
+        definicao="TEXT",
+    )
+
+
 def criar_schema():
     """
     Cria o schema do AutoTube V1.2.
@@ -46,6 +129,9 @@ def criar_schema():
     Cada conteúdo possui um ID global
     independente do ID legado usado
     atualmente pelo AutoTube.
+
+    Também atualiza bancos existentes
+    sem apagar os dados atuais.
     """
 
     conexao = conectar_banco()
@@ -116,6 +202,8 @@ def criar_schema():
                 playlist_nome TEXT,
                 idioma TEXT,
                 categoria TEXT,
+                thumbnail_drive_id TEXT,
+                thumbnail_nome_arquivo TEXT,
                 data_criacao TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 data_atualizacao TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -307,6 +395,10 @@ def criar_schema():
                 data_evento
             );
             """
+        )
+
+        atualizar_schema_existente(
+            conexao
         )
 
         conexao.commit()
