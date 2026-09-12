@@ -131,6 +131,8 @@ def processar_publicacao(
     video,
     privacidade,
     pedir_confirmacao=True,
+    metadados_override=None,
+    registrar_controle_legado=True,
 ):
     nome_arquivo = str(
         video.get(
@@ -198,8 +200,18 @@ def processar_publicacao(
         projeto["nome"],
     )
 
-    metadados = buscar_metadados(
-        nome_arquivo
+    if metadados_override is not None:
+                metadados = metadados_override
+
+                logger.info(
+                    "Metadados recebidos pelo serviço | "
+                    "video_id=%s",
+                    video_id,
+    )
+
+    else:
+        metadados = buscar_metadados(
+            nome_arquivo
     )
 
     if metadados is None:
@@ -480,9 +492,19 @@ def processar_publicacao(
         youtube_id,
     )
 
-    registrado = registrar_video_publicado(
-        video_id=video_id,
-        youtube_id=youtube_id,
+    if registrar_controle_legado:
+        registrado = registrar_video_publicado(
+             video_id=video_id,
+             youtube_id=youtube_id,
+    )
+
+    else:
+        registrado = True
+
+        logger.info(
+            "Atualização do controle JSON ignorada | "
+            "video_id=%s | origem=sqlite",
+            video_id,
     )
 
     if not registrado:
