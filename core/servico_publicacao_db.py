@@ -629,19 +629,128 @@ class ServicoPublicacaoDB:
         self,
         publicacao_id,
     ):
-        """
-        Executa uma publicação real
-        controlada pelo SQLite.
-
-        ATENÇÃO:
-        este método chama o pipeline
-        e pode publicar realmente
-        no YouTube.
-        """
 
         pacote = self.preparar_execucao(
             publicacao_id
         )
+
+        publicacao = pacote[
+            "publicacao"
+        ]
+
+        fila = pacote[
+            "fila"
+        ]
+
+        status_publicacao = (
+            publicacao.get(
+                "status"
+            )
+        )
+
+        status_fila = fila.get(
+            "status"
+        )
+
+        tentativas = (
+            fila.get(
+                "tentativas"
+            )
+            or 0
+        )
+
+        max_tentativas = (
+            fila.get(
+                "max_tentativas"
+            )
+            or 0
+        )
+
+        # ---------------------------------
+        # TRAVA 1
+        # Publicação já concluída
+        # ---------------------------------
+
+        if (
+            status_publicacao
+            == "CONCLUIDO"
+        ):
+            raise RuntimeError(
+                "Publicação já concluída. "
+                "Nova execução bloqueada."
+            )
+
+        # ---------------------------------
+        # TRAVA 2
+        # Publicação parcial
+        # ---------------------------------
+
+        if (
+            status_publicacao
+            == "PARCIAL"
+        ):
+            raise RuntimeError(
+                "Publicação parcial detectada. "
+                "Nova execução completa bloqueada "
+                "para evitar upload duplicado."
+            )
+
+        # ---------------------------------
+        # TRAVA 3
+        # Fila concluída ou parcial
+        # ---------------------------------
+
+        if status_fila in (
+            "CONCLUIDO",
+            "PARCIAL",
+        ):
+            raise RuntimeError(
+                "Item da fila não pode ser "
+                "executado novamente. "
+                f"Status atual: {status_fila}"
+            )
+
+        # ---------------------------------
+        # TRAVA 4
+        # Limite de tentativas
+        # ---------------------------------
+
+        if (
+            max_tentativas > 0
+            and tentativas
+            >= max_tentativas
+        ):
+            mensagem = (
+                "Limite máximo de tentativas "
+                "atingido. "
+                f"Tentativas: {tentativas}/"
+                f"{max_tentativas}"
+            )
+
+            registrar_historico(
+                publicacao_id=publicacao_id,
+                etapa="SEGURANCA",
+                status="BLOQUEADO",
+                mensagem=mensagem,
+            )
+
+            logger.warning(
+                "Execução bloqueada | "
+                "publicacao_id=%s | "
+                "tentativas=%s | "
+                "max_tentativas=%s",
+                publicacao_id,
+                tentativas,
+                max_tentativas,
+            )
+
+            raise RuntimeError(
+                mensagem
+            )
+
+        # ---------------------------------
+        # EXECUÇÃO
+        # ---------------------------------
 
         self.iniciar_processamento(
             publicacao_id
