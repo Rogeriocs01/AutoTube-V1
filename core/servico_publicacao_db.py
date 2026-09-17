@@ -13,11 +13,13 @@ from core.repositorio_publicacao import (
     atualizar_publicacao,
     criar_publicacao,
     incrementar_tentativa_fila,
+    incrementar_tentativa_etapa,
     listar_fila,
     obter_item_fila,
     obter_publicacao,
     registrar_historico,
     salvar_etapa,
+    atualizar_etapa,
 )
 
 
@@ -266,6 +268,83 @@ class ServicoPublicacaoDB:
             status="AGUARDANDO",
             obrigatoria=True,
         )
+
+    def registrar_evento_etapa(
+        self,
+        publicacao_id,
+        etapa,
+        status,
+        mensagem=None,
+        dados=None,
+    ):
+        """Persiste no SQLite um evento técnico do pipeline."""
+        from core.repositorio_publicacao import agora_iso
+
+        dados = dados or {}
+        agora = agora_iso()
+
+        if status == "PROCESSANDO":
+            incrementar_tentativa_etapa(publicacao_id, etapa)
+            atualizar_etapa(
+                publicacao_id=publicacao_id,
+                etapa=etapa,
+                status="PROCESSANDO",
+                data_inicio=agora,
+                ultimo_erro="",
+            )
+        elif status in ("CONCLUIDO", "IGNORADO"):
+            atualizar_etapa(
+                publicacao_id=publicacao_id,
+                etapa=etapa,
+                status=status,
+                data_conclusao=agora,
+                ultimo_erro="",
+            )
+        elif status == "ERRO":
+            atualizar_etapa(
+                publicacao_id=publicacao_id,
+                etapa=etapa,
+                status="ERRO",
+                data_conclusao=agora,
+                ultimo_erro=mensagem or "Falha na etapa",
+            )
+        else:
+            atualizar_etapa(
+                publicacao_id=publicacao_id,
+                etapa=etapa,
+                status=status,
+            )
+
+        youtube_id = dados.get("youtube_id")
+        if etapa == "UPLOAD" and status == "CONCLUIDO" and youtube_id:
+            atualizar_publicacao(
+                publicacao_id=publicacao_id,
+                external_id=youtube_id,
+            )
+
+        registrar_historico(
+            publicacao_id=publicacao_id,
+            etapa=etapa,
+            status=status,
+            mensagem=mensagem,
+            detalhes=(
+                f"youtube_id={youtube_id}"
+                if youtube_id else None
+            ),
+        )
+
+    def criar_callback_etapas(self, publicacao_id):
+        """Cria callback de etapas sem acoplar o pipeline ao SQLite."""
+        def callback(etapa, status, mensagem=None, dados=None):
+            self.registrar_evento_etapa(
+                publicacao_id=publicacao_id,
+                etapa=etapa,
+                status=status,
+                mensagem=mensagem,
+                dados=dados,
+            )
+
+        return callback
 
     def obter_solicitacao(
         self,
@@ -772,6 +851,9 @@ class ServicoPublicacaoDB:
                     "metadados"
                 ],
                 registrar_controle_legado=False,
+                callback_etapa=self.criar_callback_etapas(
+                    publicacao_id
+                ),
             )
 
         except Exception as erro:

@@ -126,6 +126,26 @@ def preparar_proximo_video(
     return caminho_local
 
 
+
+def notificar_etapa(
+    callback_etapa,
+    etapa,
+    status,
+    mensagem=None,
+    dados=None,
+):
+    """Notifica opcionalmente o andamento da publicação."""
+    if callback_etapa is None:
+        return
+
+    callback_etapa(
+        etapa=etapa,
+        status=status,
+        mensagem=mensagem,
+        dados=dados or {},
+    )
+
+
 def processar_publicacao(
     video_id,
     video,
@@ -133,7 +153,14 @@ def processar_publicacao(
     pedir_confirmacao=True,
     metadados_override=None,
     registrar_controle_legado=True,
+    callback_etapa=None,
 ):
+    notificar_etapa(
+        callback_etapa,
+        "PREPARACAO",
+        "PROCESSANDO",
+    )
+
     nome_arquivo = str(
         video.get(
             "arquivo",
@@ -155,6 +182,13 @@ def processar_publicacao(
             "Vídeo pendente sem nome de arquivo | "
             "video_id=%s",
             video_id,
+        )
+
+        notificar_etapa(
+            callback_etapa,
+            "PREPARACAO",
+            "ERRO",
+            mensagem="Vídeo pendente sem nome de arquivo",
         )
 
         return ResultadoPublicacao.falha(
@@ -189,6 +223,13 @@ def processar_publicacao(
             video_id,
         )
 
+        notificar_etapa(
+            callback_etapa,
+            "PREPARACAO",
+            "ERRO",
+            mensagem="Nenhum projeto ativo",
+        )
+
         return ResultadoPublicacao.falha(
             mensagem="Nenhum projeto ativo",
             video_id=video_id,
@@ -201,18 +242,18 @@ def processar_publicacao(
     )
 
     if metadados_override is not None:
-                metadados = metadados_override
+        metadados = metadados_override
 
-                logger.info(
-                    "Metadados recebidos pelo serviço | "
-                    "video_id=%s",
-                    video_id,
-    )
+        logger.info(
+            "Metadados recebidos pelo serviço | "
+            "video_id=%s",
+            video_id,
+        )
 
     else:
         metadados = buscar_metadados(
             nome_arquivo
-    )
+        )
 
     if metadados is None:
         print(
@@ -225,6 +266,13 @@ def processar_publicacao(
             "video_id=%s | arquivo=%s",
             video_id,
             nome_arquivo,
+        )
+
+        notificar_etapa(
+            callback_etapa,
+            "PREPARACAO",
+            "ERRO",
+            mensagem="Metadados não encontrados",
         )
 
         return ResultadoPublicacao.falha(
@@ -246,6 +294,13 @@ def processar_publicacao(
             "motivo=validação do canal falhou | "
             "video_id=%s",
             video_id,
+        )
+
+        notificar_etapa(
+            callback_etapa,
+            "PREPARACAO",
+            "ERRO",
+            mensagem="Validação do canal do YouTube falhou",
         )
 
         return ResultadoPublicacao.falha(
@@ -273,6 +328,13 @@ def processar_publicacao(
             "não identificado | "
             "video_id=%s",
             video_id,
+        )
+
+        notificar_etapa(
+            callback_etapa,
+            "PREPARACAO",
+            "ERRO",
+            mensagem="Canal autenticado não identificado",
         )
 
         return ResultadoPublicacao.falha(
@@ -348,6 +410,13 @@ def processar_publicacao(
             excluir_arquivo_temporario(
                 caminho_thumbnail
             )
+
+        notificar_etapa(
+            callback_etapa,
+            "PREPARACAO",
+            "ERRO",
+            mensagem="Não foi possível preparar o vídeo",
+        )
 
         return ResultadoPublicacao.falha(
             mensagem=(
@@ -451,6 +520,18 @@ def processar_publicacao(
                 etapa="confirmacao",
             )
 
+    notificar_etapa(
+        callback_etapa,
+        "PREPARACAO",
+        "CONCLUIDO",
+    )
+
+    notificar_etapa(
+        callback_etapa,
+        "UPLOAD",
+        "PROCESSANDO",
+    )
+
     logger.info(
         "Iniciando upload para YouTube | "
         "video_id=%s",
@@ -476,6 +557,13 @@ def processar_publicacao(
             nome_arquivo,
         )
 
+        notificar_etapa(
+            callback_etapa,
+            "UPLOAD",
+            "ERRO",
+            mensagem="Upload para o YouTube não concluído",
+        )
+
         return ResultadoPublicacao.falha(
             mensagem=(
                 "Upload para o YouTube "
@@ -490,6 +578,13 @@ def processar_publicacao(
         "video_id=%s | youtube_id=%s",
         video_id,
         youtube_id,
+    )
+
+    notificar_etapa(
+        callback_etapa,
+        "UPLOAD",
+        "CONCLUIDO",
+        dados={"youtube_id": youtube_id},
     )
 
     if registrar_controle_legado:
@@ -539,10 +634,35 @@ def processar_publicacao(
         youtube_id,
     )
 
+    if playlist_id:
+        notificar_etapa(
+            callback_etapa,
+            "PLAYLIST",
+            "PROCESSANDO",
+        )
+
     playlist_ok = adicionar_video_playlist(
         youtube_id=youtube_id,
         playlist_id=playlist_id,
     )
+
+    if playlist_id:
+        notificar_etapa(
+            callback_etapa,
+            "PLAYLIST",
+            "CONCLUIDO" if playlist_ok else "ERRO",
+            mensagem=(
+                None if playlist_ok
+                else "Falha ao aplicar playlist"
+            ),
+        )
+    else:
+        notificar_etapa(
+            callback_etapa,
+            "PLAYLIST",
+            "IGNORADO",
+            mensagem="Playlist não utilizada",
+        )
 
     if playlist_id:
         if playlist_ok:
@@ -562,6 +682,12 @@ def processar_publicacao(
             )
 
     if caminho_thumbnail:
+        notificar_etapa(
+            callback_etapa,
+            "THUMBNAIL",
+            "PROCESSANDO",
+        )
+
         thumbnail_ok = (
             definir_thumbnail_youtube(
                 youtube_id=youtube_id,
@@ -571,6 +697,24 @@ def processar_publicacao(
 
     else:
         thumbnail_ok = True
+
+    if caminho_thumbnail:
+        notificar_etapa(
+            callback_etapa,
+            "THUMBNAIL",
+            "CONCLUIDO" if thumbnail_ok else "ERRO",
+            mensagem=(
+                None if thumbnail_ok
+                else "Falha ao aplicar thumbnail"
+            ),
+        )
+    else:
+        notificar_etapa(
+            callback_etapa,
+            "THUMBNAIL",
+            "IGNORADO",
+            mensagem="Thumbnail não utilizada",
+        )
 
     if caminho_thumbnail:
         if thumbnail_ok:
@@ -588,8 +732,24 @@ def processar_publicacao(
                 youtube_id,
             )
 
+    notificar_etapa(
+        callback_etapa,
+        "DRIVE",
+        "PROCESSANDO",
+    )
+
     movido = mover_video_para_publicados(
         drive_id=video["drive_id"]
+    )
+
+    notificar_etapa(
+        callback_etapa,
+        "DRIVE",
+        "CONCLUIDO" if movido else "ERRO",
+        mensagem=(
+            None if movido
+            else "Falha ao mover vídeo para Publicados"
+        ),
     )
 
     if movido:
@@ -712,6 +872,18 @@ def processar_publicacao(
 
     print(
         "========================================"
+    )
+
+    notificar_etapa(
+        callback_etapa,
+        "FINALIZACAO",
+        "PROCESSANDO",
+    )
+
+    notificar_etapa(
+        callback_etapa,
+        "FINALIZACAO",
+        "CONCLUIDO",
     )
 
     logger.info(
