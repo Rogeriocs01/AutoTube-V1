@@ -1,6 +1,19 @@
 from core.logger import obter_logger
 
-from core.pipeline import processar_publicacao
+from core.pipeline import (
+    excluir_arquivo_temporario,
+    processar_publicacao,
+)
+
+from core.drive import (
+    baixar_thumbnail,
+    mover_video_para_publicados,
+)
+
+from core.youtube import (
+    adicionar_video_playlist,
+    definir_thumbnail_youtube,
+)
 
 from core.repositorio import (
     obter_conteudo,
@@ -14,6 +27,7 @@ from core.repositorio_publicacao import (
     criar_publicacao,
     incrementar_tentativa_fila,
     incrementar_tentativa_etapa,
+    listar_etapas,
     listar_fila,
     obter_item_fila,
     obter_publicacao,
@@ -703,6 +717,508 @@ class ServicoPublicacaoDB:
             return "PARCIAL"
 
         return "CONCLUIDO"
+
+    def obter_plano_reparo(
+        self,
+        publicacao_id,
+    ):
+        """
+        Monta o plano de reparo de uma publicação PARCIAL.
+
+        Somente leitura: não chama YouTube, não chama Drive,
+        não altera o SQLite e nunca agenda novo UPLOAD.
+        """
+
+        publicacao = obter_publicacao(publicacao_id)
+
+        if publicacao is None:
+            raise ValueError(
+                f"Publicação não encontrada: {publicacao_id}"
+            )
+
+        if publicacao.get("plataforma") != PLATAFORMA_YOUTUBE:
+            raise ValueError(
+                "Reparo disponível somente para publicações do YouTube."
+            )
+
+        status_publicacao = publicacao.get("status")
+
+        if status_publicacao != "PARCIAL":
+            raise RuntimeError(
+                "Reparo permitido somente para publicação "
+                f"com status PARCIAL. Status atual: {status_publicacao}"
+            )
+
+        external_id = str(
+            publicacao.get("external_id") or ""
+        ).strip()
+
+        if not external_id:
+            mensagem = (
+                "Publicação PARCIAL sem external_id. "
+                "Reparo bloqueado por segurança para evitar upload duplicado."
+            )
+            registrar_historico(
+                publicacao_id=publicacao_id,
+                etapa="SEGURANCA",
+                status="BLOQUEADO",
+                mensagem=mensagem,
+            )
+            logger.warning(
+                "Reparo bloqueado | publicacao_id=%s | "
+                "motivo=external_id ausente",
+                publicacao_id,
+            )
+            raise RuntimeError(mensagem)
+
+        etapas = listar_etapas(publicacao_id)
+        etapas_por_nome = {
+            etapa["etapa"]: etapa
+            for etapa in etapas
+        }
+
+        upload = etapas_por_nome.get("UPLOAD")
+        if upload is None:
+            raise RuntimeError(
+                "Etapa UPLOAD não encontrada. "
+                "Reparo bloqueado por segurança."
+            )
+
+        reparar = []
+        resolvidas = []
+        revisar = []
+
+        for nome_etapa in ("PLAYLIST", "THUMBNAIL", "DRIVE"):
+            etapa = etapas_por_nome.get(nome_etapa)
+
+            if etapa is None:
+                revisar.append(nome_etapa)
+                continue
+
+            status = etapa.get("status")
+
+            if status == "ERRO":
+                reparar.append(nome_etapa)
+            elif status in ("CONCLUIDO", "IGNORADO"):
+                resolvidas.append(nome_etapa)
+            else:
+                revisar.append(nome_etapa)
+
+        plano = {
+            "publicacao_id": publicacao_id,
+            "youtube_id": external_id,
+            "status_publicacao": status_publicacao,
+            "upload_bloqueado": True,
+            "upload_status": upload.get("status"),
+            "reparar": reparar,
+            "resolvidas": resolvidas,
+            "revisar": revisar,
+        }
+
+        logger.info(
+            "Plano de reparo criado | publicacao_id=%s | "
+            "youtube_id=%s | reparar=%s | revisar=%s",
+            publicacao_id,
+            external_id,
+            reparar,
+            revisar,
+        )
+
+        return plano
+
+    def validar_plano_reparo(
+        self,
+        publicacao_id,
+    ):
+        """
+        Valida o plano sem executar nenhuma operação externa.
+        """
+
+        plano = self.obter_plano_reparo(publicacao_id)
+
+        if "UPLOAD" in plano["reparar"]:
+            raise RuntimeError(
+                "Falha crítica de segurança: "
+                "UPLOAD apareceu no plano de reparo."
+            )
+
+        if not plano["upload_bloqueado"]:
+            raise RuntimeError(
+                "Falha crítica de segurança: "
+                "UPLOAD não está bloqueado."
+            )
+
+        return plano
+
+    def executar_reparo_playlist(
+        self,
+        publicacao_id,
+        youtube_id,
+        metadados,
+    ):
+        """Reexecuta somente a etapa PLAYLIST."""
+
+        playlist_id = metadados.get(
+            "playlist_id"
+        )
+
+        if not playlist_id:
+            self.registrar_evento_etapa(
+                publicacao_id,
+                "PLAYLIST",
+                "IGNORADO",
+                "Nenhuma playlist definida",
+            )
+            return True
+
+        self.registrar_evento_etapa(
+            publicacao_id,
+            "PLAYLIST",
+            "PROCESSANDO",
+            "Reparo da playlist iniciado",
+        )
+
+        ok = adicionar_video_playlist(
+            youtube_id=youtube_id,
+            playlist_id=playlist_id,
+        )
+
+        self.registrar_evento_etapa(
+            publicacao_id,
+            "PLAYLIST",
+            "CONCLUIDO" if ok else "ERRO",
+            (
+                "Playlist reparada com sucesso"
+                if ok
+                else "Falha ao reparar playlist"
+            ),
+        )
+
+        return bool(ok)
+
+    def executar_reparo_thumbnail(
+        self,
+        publicacao_id,
+        youtube_id,
+        conteudo,
+    ):
+        """Reexecuta somente a etapa THUMBNAIL."""
+
+        caminho_thumbnail = None
+
+        self.registrar_evento_etapa(
+            publicacao_id,
+            "THUMBNAIL",
+            "PROCESSANDO",
+            "Reparo da thumbnail iniciado",
+        )
+
+        try:
+            caminho_thumbnail = baixar_thumbnail(
+                nome_video=conteudo[
+                    "nome_arquivo"
+                ]
+            )
+
+            if caminho_thumbnail is None:
+                self.registrar_evento_etapa(
+                    publicacao_id,
+                    "THUMBNAIL",
+                    "ERRO",
+                    "Thumbnail não encontrada ou não pôde ser baixada",
+                )
+                return False
+
+            ok = definir_thumbnail_youtube(
+                youtube_id=youtube_id,
+                caminho_thumbnail=caminho_thumbnail,
+            )
+
+            self.registrar_evento_etapa(
+                publicacao_id,
+                "THUMBNAIL",
+                "CONCLUIDO" if ok else "ERRO",
+                (
+                    "Thumbnail reparada com sucesso"
+                    if ok
+                    else "Falha ao reparar thumbnail"
+                ),
+            )
+
+            return bool(ok)
+
+        finally:
+            excluir_arquivo_temporario(
+                caminho_thumbnail
+            )
+
+    def executar_reparo_drive(
+        self,
+        publicacao_id,
+        conteudo,
+    ):
+        """Reexecuta somente a etapa DRIVE."""
+
+        self.registrar_evento_etapa(
+            publicacao_id,
+            "DRIVE",
+            "PROCESSANDO",
+            "Reparo da movimentação no Drive iniciado",
+        )
+
+        ok = mover_video_para_publicados(
+            drive_id=conteudo[
+                "drive_file_id"
+            ]
+        )
+
+        self.registrar_evento_etapa(
+            publicacao_id,
+            "DRIVE",
+            "CONCLUIDO" if ok else "ERRO",
+            (
+                "Movimentação no Drive reparada com sucesso"
+                if ok
+                else "Falha ao reparar movimentação no Drive"
+            ),
+        )
+
+        return bool(ok)
+
+    def avaliar_reparo(
+        self,
+        publicacao_id,
+    ):
+        """
+        Reavalia as etapas pós-upload após uma tentativa de reparo.
+        """
+
+        etapas = listar_etapas(
+            publicacao_id
+        )
+
+        etapas_por_nome = {
+            etapa["etapa"]: etapa
+            for etapa in etapas
+        }
+
+        pendentes = []
+
+        for nome_etapa in (
+            "PLAYLIST",
+            "THUMBNAIL",
+            "DRIVE",
+        ):
+            etapa = etapas_por_nome.get(
+                nome_etapa
+            )
+
+            if etapa is None:
+                pendentes.append(
+                    nome_etapa
+                )
+                continue
+
+            if etapa.get("status") not in (
+                "CONCLUIDO",
+                "IGNORADO",
+            ):
+                pendentes.append(
+                    nome_etapa
+                )
+
+        return {
+            "concluido": not pendentes,
+            "pendentes": pendentes,
+        }
+
+    def reparar_publicacao(
+        self,
+        publicacao_id,
+    ):
+        """
+        Repara somente etapas pós-upload de uma publicação PARCIAL.
+
+        REGRA CRÍTICA:
+        este método nunca chama processar_publicacao()
+        e nunca executa UPLOAD.
+        """
+
+        plano = self.validar_plano_reparo(
+            publicacao_id
+        )
+
+        if plano["revisar"]:
+            raise RuntimeError(
+                "Reparo automático bloqueado. "
+                "Há etapas que exigem revisão: "
+                + ", ".join(plano["revisar"])
+            )
+
+        publicacao = obter_publicacao(
+            publicacao_id
+        )
+
+        conteudo, metadados = (
+            self.obter_dados_conteudo(
+                publicacao["conteudo_id"]
+            )
+        )
+
+        youtube_id = plano[
+            "youtube_id"
+        ]
+
+        registrar_historico(
+            publicacao_id=publicacao_id,
+            etapa="REPARO",
+            status="PROCESSANDO",
+            mensagem=(
+                "Reparo seletivo iniciado. "
+                "Etapas: "
+                + (
+                    ", ".join(plano["reparar"])
+                    if plano["reparar"]
+                    else "nenhuma"
+                )
+            ),
+        )
+
+        resultados = {}
+
+        for etapa in plano["reparar"]:
+            try:
+                if etapa == "PLAYLIST":
+                    resultados[etapa] = (
+                        self.executar_reparo_playlist(
+                            publicacao_id,
+                            youtube_id,
+                            metadados,
+                        )
+                    )
+
+                elif etapa == "THUMBNAIL":
+                    resultados[etapa] = (
+                        self.executar_reparo_thumbnail(
+                            publicacao_id,
+                            youtube_id,
+                            conteudo,
+                        )
+                    )
+
+                elif etapa == "DRIVE":
+                    resultados[etapa] = (
+                        self.executar_reparo_drive(
+                            publicacao_id,
+                            conteudo,
+                        )
+                    )
+
+                else:
+                    raise RuntimeError(
+                        "Etapa de reparo não suportada: "
+                        f"{etapa}"
+                    )
+
+            except Exception as erro:
+                logger.exception(
+                    "Erro durante reparo seletivo | "
+                    "publicacao_id=%s | etapa=%s",
+                    publicacao_id,
+                    etapa,
+                )
+
+                self.registrar_evento_etapa(
+                    publicacao_id,
+                    etapa,
+                    "ERRO",
+                    str(erro),
+                )
+
+                resultados[etapa] = False
+
+        avaliacao = self.avaliar_reparo(
+            publicacao_id
+        )
+
+        from core.repositorio_publicacao import (
+            agora_iso,
+        )
+
+        agora = agora_iso()
+
+        if avaliacao["concluido"]:
+            atualizar_publicacao(
+                publicacao_id=publicacao_id,
+                status="CONCLUIDO",
+                data_conclusao=agora,
+            )
+
+            atualizar_item_fila(
+                publicacao_id=publicacao_id,
+                status="CONCLUIDO",
+                finalizado_em=agora,
+                ultimo_erro="",
+            )
+
+            registrar_historico(
+                publicacao_id=publicacao_id,
+                etapa="REPARO",
+                status="CONCLUIDO",
+                mensagem=(
+                    "Reparo seletivo concluído com sucesso"
+                ),
+                detalhes=(
+                    f"youtube_id={youtube_id}"
+                ),
+            )
+
+            status_final = "CONCLUIDO"
+
+        else:
+            mensagem = (
+                "Reparo parcial. Etapas ainda pendentes: "
+                + ", ".join(
+                    avaliacao["pendentes"]
+                )
+            )
+
+            atualizar_publicacao(
+                publicacao_id=publicacao_id,
+                status="PARCIAL",
+            )
+
+            atualizar_item_fila(
+                publicacao_id=publicacao_id,
+                status="PARCIAL",
+                ultimo_erro=mensagem,
+            )
+
+            registrar_historico(
+                publicacao_id=publicacao_id,
+                etapa="REPARO",
+                status="PARCIAL",
+                mensagem=mensagem,
+                detalhes=(
+                    f"youtube_id={youtube_id}"
+                ),
+            )
+
+            status_final = "PARCIAL"
+
+        return {
+            "publicacao_id": publicacao_id,
+            "youtube_id": youtube_id,
+            "upload_executado": False,
+            "etapas_planejadas": (
+                plano["reparar"]
+            ),
+            "resultados": resultados,
+            "status_final": status_final,
+            "pendentes": (
+                avaliacao["pendentes"]
+            ),
+        }
 
     def executar_publicacao(
         self,
