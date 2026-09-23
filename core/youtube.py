@@ -468,17 +468,59 @@ def adicionar_video_playlist(
         )
         return False
 
-    corpo = {
-        "snippet": {
-            "playlistId": playlist_id,
-            "resourceId": {
-                "kind": "youtube#video",
-                "videoId": youtube_id,
-            },
-        }
-    }
-
     try:
+        page_token = None
+
+        while True:
+            resposta = youtube.playlistItems().list(
+                part="snippet",
+                playlistId=playlist_id,
+                maxResults=50,
+                pageToken=page_token,
+            ).execute()
+
+            for item in resposta.get(
+                "items",
+                [],
+            ):
+                resource_id = (
+                    item.get(
+                        "snippet",
+                        {},
+                    )
+                    .get(
+                        "resourceId",
+                        {},
+                    )
+                )
+
+                if (
+                    resource_id.get("videoId")
+                    == youtube_id
+                ):
+                    print(
+                        "\nO vídeo já está na playlist. "
+                        "Nenhuma inclusão necessária."
+                    )
+                    return True
+
+            page_token = resposta.get(
+                "nextPageToken"
+            )
+
+            if not page_token:
+                break
+
+        corpo = {
+            "snippet": {
+                "playlistId": playlist_id,
+                "resourceId": {
+                    "kind": "youtube#video",
+                    "videoId": youtube_id,
+                },
+            }
+        }
+
         youtube.playlistItems().insert(
             part="snippet",
             body=corpo,
@@ -494,8 +536,8 @@ def adicionar_video_playlist(
     except HttpError as erro:
         print(
             "\nO vídeo foi publicado, "
-            "mas não foi possível adicioná-lo "
-            "à playlist."
+            "mas não foi possível verificar "
+            "ou adicionar o vídeo à playlist."
         )
 
         print(

@@ -960,11 +960,79 @@ def mover_video_para_publicados(
     ]
 
     try:
-        service.files().update(
+        arquivo = service.files().get(
             fileId=drive_id,
-            addParents=pasta_publicados_id,
-            removeParents=pasta_pendentes_id,
-            fields="id, parents",
+            fields="id, parents, trashed",
+        ).execute()
+
+        if arquivo.get("trashed", False):
+            print(
+                "O vídeo está na lixeira "
+                "do Google Drive."
+            )
+            return False
+
+        parents = set(
+            arquivo.get("parents", [])
+        )
+
+        em_pendentes = (
+            pasta_pendentes_id in parents
+        )
+
+        em_publicados = (
+            pasta_publicados_id in parents
+        )
+
+        if (
+            em_publicados
+            and not em_pendentes
+        ):
+            print(
+                "Vídeo já está na pasta "
+                "Publicados. Nenhum movimento "
+                "necessário."
+            )
+            return True
+
+        add_parents = None
+        remove_parents = None
+
+        if not em_publicados:
+            add_parents = pasta_publicados_id
+
+        if em_pendentes:
+            remove_parents = pasta_pendentes_id
+
+        if (
+            add_parents is None
+            and remove_parents is None
+        ):
+            print(
+                "O vídeo não está em Pendentes "
+                "nem em Publicados. Movimento "
+                "bloqueado para evitar alterar "
+                "um estado inesperado."
+            )
+            return False
+
+        parametros = {
+            "fileId": drive_id,
+            "fields": "id, parents",
+        }
+
+        if add_parents is not None:
+            parametros["addParents"] = (
+                add_parents
+            )
+
+        if remove_parents is not None:
+            parametros["removeParents"] = (
+                remove_parents
+            )
+
+        service.files().update(
+            **parametros
         ).execute()
 
         print(
