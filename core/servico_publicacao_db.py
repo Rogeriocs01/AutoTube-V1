@@ -29,6 +29,7 @@ from core.repositorio_publicacao import (
     incrementar_tentativa_etapa,
     listar_etapas,
     listar_fila,
+    listar_publicacoes,
     obter_item_fila,
     obter_publicacao,
     registrar_historico,
@@ -156,19 +157,69 @@ class ServicoPublicacaoDB:
             ),
         }
 
+    def obter_publicacao_conflitante(
+        self,
+        conteudo_id,
+        plataforma=PLATAFORMA_YOUTUBE,
+    ):
+        """
+        Retorna uma publicação que impeça
+        a criação de uma nova solicitação.
+
+        Publicações com erro não bloqueiam
+        automaticamente uma nova solicitação.
+        """
+
+        status_bloqueantes = {
+            "AGUARDANDO",
+            "PROCESSANDO",
+            "PARCIAL",
+            "CONCLUIDO",
+        }
+
+        publicacoes = listar_publicacoes(
+            conteudo_id=conteudo_id,
+            plataforma=plataforma,
+        )
+
+        for publicacao in publicacoes:
+            status = str(
+                publicacao.get("status") or ""
+            ).upper()
+
+            if status in status_bloqueantes:
+                return publicacao
+
+        return None
+
     def criar_solicitacao(
         self,
         conteudo_id,
         privacidade="private",
         canal_id=None,
         prioridade=100,
+        plataforma=PLATAFORMA_YOUTUBE,
     ):
         """
         Cria uma solicitação de publicação
         e adiciona à fila.
 
+        Este método é a porta de entrada
+        reutilizável do AutoTube para CLI,
+        Creator OS e futura API.
+
         Não executa upload.
         """
+
+        plataforma = str(
+            plataforma or ""
+        ).strip().upper()
+
+        if plataforma != PLATAFORMA_YOUTUBE:
+            raise ValueError(
+                "Plataforma ainda não suportada: "
+                f"{plataforma or 'não informada'}"
+            )
 
         conteudo, metadados = (
             self.obter_dados_conteudo(
@@ -181,9 +232,24 @@ class ServicoPublicacaoDB:
             metadados,
         )
 
+        conflitante = (
+            self.obter_publicacao_conflitante(
+                conteudo_id=conteudo_id,
+                plataforma=plataforma,
+            )
+        )
+
+        if conflitante is not None:
+            raise RuntimeError(
+                "Conteúdo já possui publicação "
+                "bloqueante para esta plataforma. "
+                f"publicacao_id={conflitante['id']} | "
+                f"status={conflitante['status']}"
+            )
+
         publicacao_id = criar_publicacao(
             conteudo_id=conteudo_id,
-            plataforma=PLATAFORMA_YOUTUBE,
+            plataforma=plataforma,
             canal_id=canal_id,
             privacidade=privacidade,
             status="AGUARDANDO",
@@ -215,11 +281,19 @@ class ServicoPublicacaoDB:
             "plataforma=%s",
             publicacao_id,
             conteudo_id,
-            PLATAFORMA_YOUTUBE,
+            plataforma,
         )
 
         return {
+            "sucesso": True,
             "publicacao_id": publicacao_id,
+            "conteudo_id": conteudo_id,
+            "plataforma": plataforma,
+            "status": "AGUARDANDO",
+            "mensagem": (
+                "Publicação adicionada à fila."
+            ),
+            # Compatibilidade com o CLI atual.
             "conteudo": conteudo,
             "metadados": metadados,
             "video_pipeline": (
