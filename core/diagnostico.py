@@ -1,9 +1,10 @@
-import json
+﻿import json
 import platform
 from pathlib import Path
 
 from config import (
     BASE_DIR,
+    PASTA_AUTOTUBE_DATA,
     PASTA_DADOS,
     PASTA_LOGS,
     PASTA_TEMP,
@@ -221,20 +222,7 @@ def verificar_estrutura_projeto(
 
     projeto_id = projeto["id"]
 
-    pasta_dados = (
-        PASTA_DADOS
-        / projeto_id
-    )
 
-    arquivo_videos = (
-        pasta_dados
-        / "videos.json"
-    )
-
-    arquivo_metadados = (
-        pasta_dados
-        / "metadados.json"
-    )
 
     pasta_credenciais = (
         BASE_DIR
@@ -246,25 +234,6 @@ def verificar_estrutura_projeto(
         pasta_credenciais
         / "token_youtube.json"
     )
-
-    if verificar_pasta(
-        pasta_dados,
-        "Pasta de dados do projeto",
-        criar=False,
-    ) is False:
-        resultado = False
-
-    if verificar_arquivo(
-        arquivo_videos,
-        "videos.json",
-    ) is False:
-        resultado = False
-
-    if verificar_arquivo(
-        arquivo_metadados,
-        "metadados.json",
-    ) is False:
-        resultado = False
 
     plataformas = projeto.get(
         "plataformas",
@@ -301,6 +270,20 @@ def verificar_estrutura_projeto(
 
     return resultado
 
+def verificar_banco_sqlite():
+    """
+    Verifica a existência do banco operacional SQLite.
+    """
+
+    arquivo_banco = (
+        PASTA_AUTOTUBE_DATA
+        / "autotube.db"
+    )
+
+    return verificar_arquivo(
+        arquivo_banco,
+        "Banco SQLite (autotube.db)",
+    )
 
 def executar_diagnostico():
     logger.info(
@@ -379,6 +362,12 @@ def executar_diagnostico():
 
         elif not existia:
             avisos += 1
+
+        print()
+    print("BANCO DE DADOS")
+
+    if not verificar_banco_sqlite():
+        erros += 1
 
     print()
     print("CONFIGURAÇÃO")

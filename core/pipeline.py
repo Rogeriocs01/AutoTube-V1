@@ -1,16 +1,8 @@
-from core.controle import (
-    obter_proximo_video_pendente,
-    registrar_video_publicado,
-    selecionar_video_pendente,
-)
-
 from core.drive import (
     baixar_thumbnail,
     baixar_video,
     mover_video_para_publicados,
 )
-
-from core.metadados import buscar_metadados
 
 from core.youtube import (
     adicionar_video_playlist,
@@ -152,7 +144,6 @@ def processar_publicacao(
     privacidade,
     pedir_confirmacao=True,
     metadados_override=None,
-    registrar_controle_legado=True,
     callback_etapa=None,
 ):
     notificar_etapa(
@@ -241,18 +232,13 @@ def processar_publicacao(
         projeto["nome"],
     )
 
-    if metadados_override is not None:
-        metadados = metadados_override
+    metadados = metadados_override
 
+    if metadados is not None:
         logger.info(
             "Metadados recebidos pelo serviço | "
             "video_id=%s",
             video_id,
-        )
-
-    else:
-        metadados = buscar_metadados(
-            nome_arquivo
         )
 
     if metadados is None:
@@ -587,53 +573,6 @@ def processar_publicacao(
         dados={"youtube_id": youtube_id},
     )
 
-    if registrar_controle_legado:
-        registrado = registrar_video_publicado(
-             video_id=video_id,
-             youtube_id=youtube_id,
-    )
-
-    else:
-        registrado = True
-
-        logger.info(
-            "Atualização do controle JSON ignorada | "
-            "video_id=%s | origem=sqlite",
-            video_id,
-    )
-
-    if not registrado:
-        print(
-            "\nATENÇÃO: o vídeo foi enviado "
-            "ao YouTube, mas houve erro "
-            "ao atualizar videos.json."
-        )
-
-        logger.error(
-            "Upload realizado mas controle "
-            "não atualizado | "
-            "video_id=%s | youtube_id=%s",
-            video_id,
-            youtube_id,
-        )
-
-        return ResultadoPublicacao.falha(
-            mensagem=(
-                "Vídeo enviado ao YouTube, "
-                "mas o controle não foi atualizado"
-            ),
-            video_id=video_id,
-            youtube_id=youtube_id,
-            etapa="controle",
-        )
-
-    logger.info(
-        "Controle atualizado | "
-        "video_id=%s | youtube_id=%s",
-        video_id,
-        youtube_id,
-    )
-
     if playlist_id:
         notificar_etapa(
             callback_etapa,
@@ -905,174 +844,3 @@ def processar_publicacao(
         thumbnail_ok=thumbnail_ok,
         drive_ok=movido,
     )
-
-
-def publicar_proximo_video(
-    privacidade,
-):
-    video_id, video = (
-        obter_proximo_video_pendente()
-    )
-
-    if video is None:
-        print(
-            "\nNenhum vídeo pendente encontrado."
-        )
-
-        logger.info(
-            "Nenhum vídeo pendente encontrado"
-        )
-
-        return ResultadoPublicacao.falha(
-            mensagem=(
-                "Nenhum vídeo pendente encontrado"
-            ),
-            etapa="selecao_video",
-        )
-
-    return processar_publicacao(
-        video_id=video_id,
-        video=video,
-        privacidade=privacidade,
-        pedir_confirmacao=True,
-    )
-
-
-def publicar_video_escolhido(
-    privacidade,
-):
-    video_id, video = (
-        selecionar_video_pendente()
-    )
-
-    if video is None:
-        return ResultadoPublicacao.falha(
-            mensagem=(
-                "Nenhum vídeo selecionado"
-            ),
-            etapa="selecao_video",
-        )
-
-    return processar_publicacao(
-        video_id=video_id,
-        video=video,
-        privacidade=privacidade,
-        pedir_confirmacao=True,
-    )
-
-
-def publicar_videos_em_lote(
-    quantidade,
-    privacidade,
-):
-    publicados = 0
-    motivo_interrupcao = None
-
-    logger.info(
-        "Publicação em lote iniciada | "
-        "quantidade=%s | privacidade=%s",
-        quantidade,
-        privacidade,
-    )
-
-    print(
-        "\n===== INICIANDO PUBLICAÇÃO EM LOTE ====="
-    )
-
-    for numero_atual in range(
-        1,
-        quantidade + 1,
-    ):
-        print(
-            f"\n===== VÍDEO {numero_atual} "
-            f"DE {quantidade} ====="
-        )
-
-        video_id, video = (
-            obter_proximo_video_pendente()
-        )
-
-        if video is None:
-            motivo_interrupcao = (
-                "Não existem mais vídeos pendentes."
-            )
-
-            logger.warning(
-                "Lote interrompido | "
-                "motivo=sem vídeos pendentes"
-            )
-
-            break
-
-        resultado = processar_publicacao(
-            video_id=video_id,
-            video=video,
-            privacidade=privacidade,
-            pedir_confirmacao=False,
-        )
-
-        if not resultado:
-            motivo_interrupcao = (
-                resultado.mensagem
-                or
-                (
-                    "O próximo vídeo não pôde "
-                    "ser publicado."
-                )
-            )
-
-            logger.warning(
-                "Lote interrompido | "
-                "video_id=%s | "
-                "etapa=%s | "
-                "motivo=%s | "
-                "publicados=%s | solicitados=%s",
-                video_id,
-                resultado.etapa,
-                resultado.mensagem,
-                publicados,
-                quantidade,
-            )
-
-            break
-
-        publicados += 1
-
-    print(
-        "\n===== RESUMO DO LOTE ====="
-    )
-
-    print(
-        f"Solicitados : {quantidade}"
-    )
-
-    print(
-        f"Publicados  : {publicados}"
-    )
-
-    if motivo_interrupcao is None:
-        print(
-            "Resultado   : lote concluído com sucesso"
-        )
-
-        logger.info(
-            "Lote concluído | "
-            "solicitados=%s | publicados=%s",
-            quantidade,
-            publicados,
-        )
-
-    else:
-        print(
-            "Resultado   : lote interrompido"
-        )
-
-        print(
-            f"Motivo      : {motivo_interrupcao}"
-        )
-
-    print(
-        "=========================="
-    )
-
-    return publicados

@@ -1,4 +1,4 @@
-from core.logger import obter_logger
+﻿from core.logger import obter_logger
 
 from core.pipeline import (
     excluir_arquivo_temporario,
@@ -1366,7 +1366,6 @@ class ServicoPublicacaoDB:
                 metadados_override=pacote[
                     "metadados"
                 ],
-                registrar_controle_legado=False,
                 callback_etapa=self.criar_callback_etapas(
                     publicacao_id
                 ),

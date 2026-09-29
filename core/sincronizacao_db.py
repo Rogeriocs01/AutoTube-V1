@@ -1,4 +1,4 @@
-from core.controle import selecionar_tipo_conteudo
+
 from core.drive import listar_videos_pendentes
 from core.projetos import obter_projeto_ativo
 from core.repositorio import (
@@ -82,12 +82,60 @@ def criar_id_global(
     )
 
 
+
+def selecionar_tipo_conteudo(nome_arquivo):
+    """
+    Solicita o tipo do novo conteúdo.
+    """
+
+    print(
+        "\n========================================"
+    )
+    print(
+        "       TIPO DO CONTEÚDO"
+    )
+    print(
+        "========================================"
+    )
+    print(
+        f"Arquivo: {nome_arquivo}"
+    )
+    print(
+        "\n1 - Short"
+    )
+    print(
+        "2 - Longo"
+    )
+    print(
+        "0 - Cancelar"
+    )
+
+    while True:
+        opcao = input(
+            "\nEscolha: "
+        ).strip()
+
+        if opcao == "1":
+            return "short"
+
+        if opcao == "2":
+            return "longo"
+
+        if opcao == "0":
+            return None
+
+        print(
+            "\nOpção inválida."
+        )
+
+
+
 def sincronizar_videos_pendentes_db():
     """
     Sincroniza os vídeos da pasta Pendentes
     do projeto ativo diretamente com SQLite.
 
-    Não altera o videos.json.
+    Utiliza o SQLite como fonte operacional.
 
     Somente arquivos novos são adicionados.
     """
