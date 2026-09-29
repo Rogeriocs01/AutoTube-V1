@@ -29,6 +29,7 @@ from core.repositorio_publicacao import (
     incrementar_tentativa_etapa,
     listar_etapas,
     listar_fila,
+    listar_historico,
     listar_publicacoes,
     obter_item_fila,
     obter_publicacao,
@@ -652,6 +653,77 @@ class ServicoPublicacaoDB:
         return self.executar_publicacao(
             job_id
         )
+
+    def adaptar_evento_externo(self, evento):
+        """
+        Converte um registro do histórico no contrato externo de evento.
+        Somente leitura.
+        """
+        if evento is None:
+            return None
+
+        return {
+            "evento_id": evento.get("id"),
+            "publicacao_id": evento.get("publicacao_id"),
+            "etapa": evento.get("etapa"),
+            "status": evento.get("status"),
+            "mensagem": evento.get("mensagem"),
+            "detalhes": evento.get("detalhes"),
+            "data_evento": evento.get("data_evento"),
+        }
+
+    def listar_eventos(self, publicacao_id):
+        """
+        Retorna o histórico de uma publicação em formato estável.
+        Somente leitura.
+        """
+        publicacao = obter_publicacao(publicacao_id)
+
+        if publicacao is None:
+            raise ValueError(
+                f"Publicação não encontrada: {publicacao_id}"
+            )
+
+        return [
+            self.adaptar_evento_externo(evento)
+            for evento in listar_historico(publicacao_id)
+        ]
+
+    def obter_resultado(self, publicacao_id):
+        """
+        Retorna o estado/resultados atuais de uma publicação
+        em contrato estável para integração. Somente leitura.
+        """
+        publicacao = obter_publicacao(publicacao_id)
+
+        if publicacao is None:
+            raise ValueError(
+                f"Publicação não encontrada: {publicacao_id}"
+            )
+
+        fila = obter_item_fila(publicacao_id)
+
+        return {
+            "publicacao_id": publicacao["id"],
+            "conteudo_id": publicacao["conteudo_id"],
+            "plataforma": publicacao["plataforma"],
+            "status": publicacao["status"],
+            "external_id": publicacao.get("external_id"),
+            "url": publicacao.get("url"),
+            "canal_id": publicacao.get("canal_id"),
+            "privacidade": publicacao.get("privacidade"),
+            "tentativas": (
+                (fila.get("tentativas") or 0)
+                if fila is not None else 0
+            ),
+            "ultimo_erro": (
+                fila.get("ultimo_erro")
+                if fila is not None else None
+            ),
+            "data_inicio": publicacao.get("data_inicio"),
+            "data_conclusao": publicacao.get("data_conclusao"),
+            "data_atualizacao": publicacao.get("data_atualizacao"),
+        }
 
     def iniciar_processamento(
         self,
