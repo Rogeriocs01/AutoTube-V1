@@ -561,6 +561,98 @@ class ServicoPublicacaoDB:
             proximo["publicacao_id"]
         )
 
+    def adaptar_job_externo(
+        self,
+        pacote,
+    ):
+        """
+        Converte uma publicação da fila
+        em um contrato de job reutilizável
+        pelo ecossistema.
+
+        Não altera estados e não executa
+        nenhuma operação externa.
+        """
+
+        if pacote is None:
+            return None
+
+        publicacao = pacote["publicacao"]
+        fila = pacote["fila"]
+
+        return {
+            "job_id": pacote["publicacao_id"],
+            "publicacao_id": pacote["publicacao_id"],
+            "conteudo_id": pacote["conteudo_id"],
+            "plataforma": pacote["plataforma"],
+            "status": fila.get("status"),
+            "prioridade": fila.get("prioridade"),
+            "tentativas": fila.get("tentativas") or 0,
+            "max_tentativas": (
+                fila.get("max_tentativas") or 0
+            ),
+            "agendado_para": fila.get("agendado_para"),
+            "canal_id": publicacao.get("canal_id"),
+            "privacidade": pacote["privacidade"],
+        }
+
+    def consultar_proximo_job(
+        self,
+    ):
+        """
+        Retorna o próximo job aguardando
+        em formato estável para integração.
+
+        Somente leitura: não assume o job,
+        não incrementa tentativas e não
+        executa publicação.
+        """
+
+        pacote = self.obter_proxima_execucao()
+
+        return self.adaptar_job_externo(
+            pacote
+        )
+
+    def obter_job(
+        self,
+        publicacao_id,
+    ):
+        """
+        Retorna um job específico em formato
+        estável para integração.
+
+        Somente leitura.
+        """
+
+        pacote = self.preparar_execucao(
+            publicacao_id
+        )
+
+        return self.adaptar_job_externo(
+            pacote
+        )
+
+    def executar_job(
+        self,
+        job_id,
+    ):
+        """
+        Executa um job do AutoTube.
+
+        Nesta versão, job_id corresponde ao
+        publicacao_id. O motor existente
+        continua responsável por travas,
+        tentativas, pipeline e finalização.
+
+        ATENÇÃO:
+        pode realizar publicação real.
+        """
+
+        return self.executar_publicacao(
+            job_id
+        )
+
     def iniciar_processamento(
         self,
         publicacao_id,
