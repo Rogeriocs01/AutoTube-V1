@@ -66,6 +66,192 @@ class BancoTemporarioMixin:
         return self.servico.criar_solicitacao(**parametros)
 
 
+class PrevisualizacaoOficialTests(BancoTemporarioMixin, unittest.TestCase):
+    def test_previsualizacao_elegivel_nao_produz_efeitos_colaterais(self):
+        banco_antes = self.db_path.read_bytes()
+
+        with (
+            patch("core.servico_publicacao_db.criar_solicitacao_atomica") as criar,
+            patch("core.servico_publicacao_db.processar_publicacao") as pipeline,
+        ):
+            resultado = InterfaceAutoTube(
+                self.servico
+            ).previsualizar_publicacao(
+                conteudo_id="conteudo-1",
+                privacidade="private",
+                canal_id="UC1234567890",
+            )
+
+        self.assertTrue(resultado["elegivel"])
+        self.assertEqual("ELEGIVEL", resultado["elegibilidade"])
+        self.assertEqual([], resultado["motivos_bloqueio"])
+        self.assertFalse(resultado["publicacao_executada"])
+        self.assertEqual(
+            {
+                "solicitacoes_criadas": 0,
+                "itens_fila_criados": 0,
+                "eventos_criados": 0,
+                "publicacoes_executadas": 0,
+                "chamadas_externas": 0,
+            },
+            resultado["efeitos"],
+        )
+        self.assertEqual(
+            {
+                "conteudo_id": "conteudo-1",
+                "privacidade": "private",
+                "canal_id": "UC1234567890",
+                "prioridade": 100,
+                "plataforma": "YOUTUBE",
+                "agendado_para": None,
+            },
+            resultado["parametros"],
+        )
+        self.assertEqual(
+            {
+                "canal_autenticado_nao_verificado",
+                "arquivo_remoto_nao_verificado",
+                "servicos_externos_nao_verificados",
+                "elegibilidade_nao_reservada",
+            },
+            {item["codigo"] for item in resultado["limitacoes"]},
+        )
+        criar.assert_not_called()
+        pipeline.assert_not_called()
+        self.assertEqual([], listar_publicacoes(conteudo_id="conteudo-1"))
+        self.assertEqual(banco_antes, self.db_path.read_bytes())
+
+    def test_previsualizacao_bloqueia_duplicidade_estados_e_external_id(self):
+        publicacao_id = self._criar_solicitacao()["publicacao_id"]
+
+        for status in (
+            "AGUARDANDO",
+            "PROCESSANDO",
+            "PARCIAL",
+            "CONCLUIDO",
+            "RECONCILIACAO",
+        ):
+            with self.subTest(status=status):
+                atualizar_publicacao(publicacao_id, status=status)
+                banco_antes = self.db_path.read_bytes()
+
+                resultado = InterfaceAutoTube(
+                    self.servico
+                ).previsualizar_publicacao("conteudo-1")
+
+                self.assertFalse(resultado["elegivel"])
+                self.assertEqual("BLOQUEADO", resultado["elegibilidade"])
+                self.assertIn(
+                    "publicacao_status_bloqueante",
+                    {
+                        motivo["codigo"]
+                        for motivo in resultado["motivos_bloqueio"]
+                    },
+                )
+                self.assertFalse(resultado["publicacao_executada"])
+                self.assertEqual(banco_antes, self.db_path.read_bytes())
+
+        atualizar_publicacao(
+            publicacao_id,
+            status="ERRO",
+            external_id="youtube-existente",
+        )
+        banco_antes = self.db_path.read_bytes()
+
+        resultado = InterfaceAutoTube(
+            self.servico
+        ).previsualizar_publicacao("conteudo-1")
+
+        self.assertFalse(resultado["elegivel"])
+        self.assertIn(
+            "external_id_existente",
+            {
+                motivo["codigo"]
+                for motivo in resultado["motivos_bloqueio"]
+            },
+        )
+        self.assertEqual(banco_antes, self.db_path.read_bytes())
+
+    def test_previsualizacao_retorna_bloqueios_para_entradas_locais_invalidas(self):
+        casos: tuple[tuple[dict[str, object], str], ...] = (
+            ({"conteudo_id": ""}, "parametros_invalidos"),
+            (
+                {"conteudo_id": "conteudo-1", "privacidade": "friends"},
+                "parametros_invalidos",
+            ),
+            (
+                {"conteudo_id": "conteudo-1", "canal_id": "   "},
+                "parametros_invalidos",
+            ),
+            (
+                {"conteudo_id": "conteudo-1", "prioridade": -1},
+                "parametros_invalidos",
+            ),
+            (
+                {"conteudo_id": "conteudo-1", "plataforma": "VIMEO"},
+                "parametros_invalidos",
+            ),
+            (
+                {"conteudo_id": "conteudo-1", "agendado_para": "sem-data"},
+                "parametros_invalidos",
+            ),
+            ({"conteudo_id": "conteudo-inexistente"}, "conteudo_invalido"),
+        )
+
+        for parametros, codigo_esperado in casos:
+            with self.subTest(parametros=parametros):
+                banco_antes = self.db_path.read_bytes()
+                try:
+                    previsualizar = getattr(
+                        InterfaceAutoTube(self.servico),
+                        "previsualizar_publicacao",
+                    )
+                    resultado = previsualizar(**parametros)
+                except ValueError as erro:
+                    self.fail(f"A pré-visualização não deve propagar erro: {erro}")
+
+                self.assertFalse(resultado["elegivel"])
+                self.assertEqual("BLOQUEADO", resultado["elegibilidade"])
+                self.assertEqual(
+                    [codigo_esperado],
+                    [
+                        motivo["codigo"]
+                        for motivo in resultado["motivos_bloqueio"]
+                    ],
+                )
+                self.assertFalse(resultado["publicacao_executada"])
+                self.assertEqual(banco_antes, self.db_path.read_bytes())
+
+    def test_previsualizacao_bloqueia_conteudo_sem_requisitos_locais(self):
+        conexao = database.conectar_banco()
+        try:
+            conexao.execute(
+                "UPDATE conteudos SET drive_file_id = NULL WHERE id = ?;",
+                ("conteudo-1",),
+            )
+            conexao.commit()
+        finally:
+            conexao.close()
+        banco_antes = self.db_path.read_bytes()
+
+        resultado = InterfaceAutoTube(
+            self.servico
+        ).previsualizar_publicacao("conteudo-1")
+
+        self.assertFalse(resultado["elegivel"])
+        self.assertEqual("BLOQUEADO", resultado["elegibilidade"])
+        self.assertEqual(
+            ["conteudo_invalido"],
+            [motivo["codigo"] for motivo in resultado["motivos_bloqueio"]],
+        )
+        self.assertIn(
+            "Drive File ID não informado",
+            resultado["motivos_bloqueio"][0]["mensagem"],
+        )
+        self.assertFalse(resultado["publicacao_executada"])
+        self.assertEqual(banco_antes, self.db_path.read_bytes())
+
+
 class ConcorrenciaEIdempotenciaTests(BancoTemporarioMixin, unittest.TestCase):
     def test_solicitacoes_concorrentes_criam_uma_unica_publicacao(self):
         barreira = threading.Barrier(2)

@@ -21,6 +21,7 @@ from core.repositorio import (
 )
 
 from core.repositorio_publicacao import (
+    STATUS_BLOQUEANTES,
     adquirir_execucao,
     atualizar_item_fila,
     atualizar_publicacao,
@@ -33,6 +34,7 @@ from core.repositorio_publicacao import (
     listar_publicacoes,
     obter_item_fila,
     obter_publicacao,
+    publicacao_bloqueia_nova_solicitacao,
     registrar_evento_etapa_atomico,
     registrar_historico,
     salvar_etapa,
@@ -171,29 +173,18 @@ class ServicoPublicacaoDB:
         automaticamente uma nova solicitação.
         """
 
-        status_bloqueantes = {
-            "AGUARDANDO",
-            "PROCESSANDO",
-            "PARCIAL",
-            "CONCLUIDO",
-        }
-
         publicacoes = listar_publicacoes(
             conteudo_id=conteudo_id,
             plataforma=plataforma,
         )
 
         for publicacao in publicacoes:
-            status = str(
-                publicacao.get("status") or ""
-            ).upper()
-
-            if status in status_bloqueantes:
+            if publicacao_bloqueia_nova_solicitacao(publicacao):
                 return publicacao
 
         return None
 
-    def criar_solicitacao(
+    def _normalizar_parametros_publicacao(
         self,
         conteudo_id,
         privacidade="private",
@@ -202,16 +193,7 @@ class ServicoPublicacaoDB:
         plataforma=PLATAFORMA_YOUTUBE,
         agendado_para=None,
     ):
-        """
-        Cria uma solicitação de publicação
-        e adiciona à fila.
-
-        Este método é a porta de entrada
-        reutilizável do AutoTube para CLI,
-        Creator OS e futura API.
-
-        Não executa upload.
-        """
+        """Valida e normaliza parâmetros comuns à solicitação e à prévia."""
 
         if not isinstance(conteudo_id, str) or not conteudo_id.strip():
             raise ValueError("conteudo_id deve ser um identificador não vazio")
@@ -255,6 +237,198 @@ class ServicoPublicacaoDB:
                 raise ValueError(
                     "agendado_para deve estar em formato ISO 8601"
                 ) from erro
+
+        return {
+            "conteudo_id": conteudo_id,
+            "privacidade": privacidade,
+            "canal_id": canal_id,
+            "prioridade": prioridade,
+            "plataforma": plataforma,
+            "agendado_para": agendado_para,
+        }
+
+    def _resultado_previsualizacao(
+        self,
+        parametros,
+        motivos_bloqueio,
+        verificacoes_locais,
+    ):
+        """Monta o contrato estável e explicitamente sem efeitos da prévia."""
+
+        elegivel = not motivos_bloqueio
+        return {
+            "elegivel": elegivel,
+            "elegibilidade": "ELEGIVEL" if elegivel else "BLOQUEADO",
+            "motivos_bloqueio": motivos_bloqueio,
+            "limitacoes": [
+                {
+                    "codigo": "canal_autenticado_nao_verificado",
+                    "mensagem": (
+                        "A identidade do canal autenticado não foi verificada."
+                    ),
+                },
+                {
+                    "codigo": "arquivo_remoto_nao_verificado",
+                    "mensagem": (
+                        "A existência e a disponibilidade do arquivo remoto "
+                        "não foram verificadas."
+                    ),
+                },
+                {
+                    "codigo": "servicos_externos_nao_verificados",
+                    "mensagem": (
+                        "Credenciais, APIs e serviços externos não foram "
+                        "consultados."
+                    ),
+                },
+                {
+                    "codigo": "elegibilidade_nao_reservada",
+                    "mensagem": (
+                        "A pré-visualização não reserva a solicitação; as "
+                        "condições serão verificadas novamente na criação."
+                    ),
+                },
+            ],
+            "parametros": parametros,
+            "verificacoes_locais": verificacoes_locais,
+            "publicacao_executada": False,
+            "efeitos": {
+                "solicitacoes_criadas": 0,
+                "itens_fila_criados": 0,
+                "eventos_criados": 0,
+                "publicacoes_executadas": 0,
+                "chamadas_externas": 0,
+            },
+        }
+
+    def previsualizar_publicacao(
+        self,
+        conteudo_id,
+        privacidade="private",
+        canal_id=None,
+        prioridade=100,
+        plataforma=PLATAFORMA_YOUTUBE,
+        agendado_para=None,
+    ):
+        """Avalia condições locais sem criar ou executar uma publicação."""
+
+        try:
+            parametros = self._normalizar_parametros_publicacao(
+                conteudo_id=conteudo_id,
+                privacidade=privacidade,
+                canal_id=canal_id,
+                prioridade=prioridade,
+                plataforma=plataforma,
+                agendado_para=agendado_para,
+            )
+        except ValueError as erro:
+            return self._resultado_previsualizacao(
+                parametros=None,
+                motivos_bloqueio=[{
+                    "codigo": "parametros_invalidos",
+                    "mensagem": str(erro),
+                }],
+                verificacoes_locais={"parametros_validos": False},
+            )
+
+        try:
+            conteudo, metadados = self.obter_dados_conteudo(conteudo_id)
+            self.validar_conteudo(conteudo, metadados)
+        except ValueError as erro:
+            return self._resultado_previsualizacao(
+                parametros=parametros,
+                motivos_bloqueio=[{
+                    "codigo": "conteudo_invalido",
+                    "mensagem": str(erro),
+                }],
+                verificacoes_locais={
+                    "parametros_validos": True,
+                    "conteudo_validado": False,
+                },
+            )
+
+        motivos_bloqueio = []
+        publicacoes = listar_publicacoes(
+            conteudo_id=parametros["conteudo_id"],
+            plataforma=parametros["plataforma"],
+        )
+        for publicacao in publicacoes:
+            if not publicacao_bloqueia_nova_solicitacao(publicacao):
+                continue
+
+            status = str(publicacao.get("status") or "").upper()
+            external_id = str(
+                publicacao.get("external_id") or ""
+            ).strip()
+            if status in STATUS_BLOQUEANTES:
+                motivos_bloqueio.append({
+                    "codigo": "publicacao_status_bloqueante",
+                    "mensagem": (
+                        "Já existe uma publicação para o conteúdo e a "
+                        f"plataforma no estado {status}."
+                    ),
+                    "publicacao_id": publicacao.get("id"),
+                    "status": status,
+                })
+            if external_id:
+                motivos_bloqueio.append({
+                    "codigo": "external_id_existente",
+                    "mensagem": (
+                        "Já existe uma publicação com identificador externo; "
+                        "uma nova publicação foi bloqueada."
+                    ),
+                    "publicacao_id": publicacao.get("id"),
+                    "status": status,
+                })
+
+        return self._resultado_previsualizacao(
+            parametros=parametros,
+            motivos_bloqueio=motivos_bloqueio,
+            verificacoes_locais={
+                "parametros_validos": True,
+                "conteudo_encontrado": True,
+                "metadados_encontrados": True,
+                "id_legado_presente": bool(conteudo.get("id_legado")),
+                "nome_arquivo_presente": bool(conteudo.get("nome_arquivo")),
+                "drive_file_id_presente": bool(conteudo.get("drive_file_id")),
+                "titulo_presente": bool(metadados.get("titulo")),
+            },
+        )
+
+    def criar_solicitacao(
+        self,
+        conteudo_id,
+        privacidade="private",
+        canal_id=None,
+        prioridade=100,
+        plataforma=PLATAFORMA_YOUTUBE,
+        agendado_para=None,
+    ):
+        """
+        Cria uma solicitação de publicação
+        e adiciona à fila.
+
+        Este método é a porta de entrada
+        reutilizável do AutoTube para CLI,
+        Creator OS e futura API.
+
+        Não executa upload.
+        """
+
+        parametros = self._normalizar_parametros_publicacao(
+            conteudo_id=conteudo_id,
+            privacidade=privacidade,
+            canal_id=canal_id,
+            prioridade=prioridade,
+            plataforma=plataforma,
+            agendado_para=agendado_para,
+        )
+        conteudo_id = parametros["conteudo_id"]
+        privacidade = parametros["privacidade"]
+        canal_id = parametros["canal_id"]
+        prioridade = parametros["prioridade"]
+        plataforma = parametros["plataforma"]
+        agendado_para = parametros["agendado_para"]
 
         conteudo, metadados = (
             self.obter_dados_conteudo(

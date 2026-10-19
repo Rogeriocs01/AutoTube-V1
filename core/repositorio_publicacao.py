@@ -49,6 +49,15 @@ STATUS_BLOQUEANTES = {
 }
 
 
+def publicacao_bloqueia_nova_solicitacao(publicacao):
+    """Aplica a regra comum de duplicidade sem alterar persistência."""
+
+    dados = dict(publicacao)
+    status = str(dados.get("status") or "").upper()
+    external_id = str(dados.get("external_id") or "").strip()
+    return status in STATUS_BLOQUEANTES or bool(external_id)
+
+
 # ============================================================
 # PUBLICAÇÕES
 # ============================================================
@@ -84,9 +93,7 @@ def criar_solicitacao_atomica(
         )
 
         for existente in cursor.fetchall():
-            status = str(existente["status"] or "").upper()
-            external_id = str(existente["external_id"] or "").strip()
-            if status in STATUS_BLOQUEANTES or external_id:
+            if publicacao_bloqueia_nova_solicitacao(existente):
                 raise RuntimeError(
                     "Conteúdo já possui publicação bloqueante "
                     "para esta plataforma. "

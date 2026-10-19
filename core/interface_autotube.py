@@ -34,6 +34,25 @@ class InterfaceAutoTube:
             agendado_para=agendado_para,
         )
 
+    def previsualizar_publicacao(
+        self,
+        conteudo_id,
+        privacidade="private",
+        canal_id=None,
+        prioridade=100,
+        plataforma="YOUTUBE",
+        agendado_para=None,
+    ):
+        """Avalia elegibilidade local sem criar ou executar publicação."""
+        return self._servico.previsualizar_publicacao(
+            conteudo_id=conteudo_id,
+            privacidade=privacidade,
+            canal_id=canal_id,
+            prioridade=prioridade,
+            plataforma=plataforma,
+            agendado_para=agendado_para,
+        )
+
     def consultar_proximo_job(self):
         """Consulta o próximo job aguardando. Somente leitura."""
         return self._servico.consultar_proximo_job()
