@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import tempfile
 import threading
@@ -695,6 +696,258 @@ class ValidacoesOperacionaisTests(BancoTemporarioMixin, unittest.TestCase):
         self.assertEqual("conteudo-1", resultado["conteudo_id"])
         self.assertEqual("private", resultado["privacidade"])
         self.assertEqual("YOUTUBE", resultado["plataforma"])
+
+
+class IdempotenciaSolicitacaoTests(BancoTemporarioMixin, unittest.TestCase):
+    def _contagens(self):
+        conexao = database.conectar_banco()
+        try:
+            return {
+                tabela: conexao.execute(
+                    f"SELECT COUNT(*) AS quantidade FROM {tabela}"
+                ).fetchone()["quantidade"]
+                for tabela in (
+                    "publicacoes",
+                    "fila_publicacao",
+                    "etapas_publicacao",
+                    "historico_publicacao",
+                    "idempotencia_solicitacao_publicacao",
+                )
+            }
+        finally:
+            conexao.close()
+
+    def test_primeira_solicitacao_persiste_identidade_e_resultado(self):
+        resultado = InterfaceAutoTube(self.servico).solicitar_publicacao(
+            "conteudo-1",
+            canal_id="UC1234567890",
+            chave_idempotencia="request-001",
+        )
+
+        conexao = database.conectar_banco()
+        try:
+            registro = conexao.execute(
+                """
+                SELECT identidade_solicitacao, resultado_criacao
+                FROM idempotencia_solicitacao_publicacao
+                WHERE chave = ?;
+                """,
+                ("request-001",),
+            ).fetchone()
+        finally:
+            conexao.close()
+
+        if registro is None:
+            self.fail("registro idempotente não persistido")
+        identidade = json.loads(registro["identidade_solicitacao"])
+        self.assertEqual("conteudo-1", identidade["conteudo_id"])
+        self.assertEqual("YOUTUBE", identidade["plataforma"])
+        self.assertEqual(resultado, json.loads(registro["resultado_criacao"]))
+        self.assertEqual(1, self._contagens()["publicacoes"])
+
+    def test_migracao_idempotente_preserva_schema_legado_e_dados(self):
+        conexao = database.conectar_banco()
+        try:
+            dados_antes = tuple(conexao.execute(
+                """
+                SELECT c.id, c.status, m.titulo
+                FROM conteudos AS c
+                JOIN metadados AS m ON m.conteudo_id = c.id
+                ORDER BY c.id;
+                """
+            ).fetchone())
+            conexao.execute(
+                "DROP TABLE idempotencia_solicitacao_publicacao;"
+            )
+            conexao.commit()
+
+            database.migrar_idempotencia_solicitacao_publicacao(conexao)
+            conexao.commit()
+            colunas = [
+                linha["name"]
+                for linha in conexao.execute(
+                    "PRAGMA table_info(idempotencia_solicitacao_publicacao);"
+                ).fetchall()
+            ]
+
+            database.migrar_idempotencia_solicitacao_publicacao(conexao)
+            conexao.commit()
+            dados_depois = tuple(conexao.execute(
+                """
+                SELECT c.id, c.status, m.titulo
+                FROM conteudos AS c
+                JOIN metadados AS m ON m.conteudo_id = c.id
+                ORDER BY c.id;
+                """
+            ).fetchone())
+        finally:
+            conexao.close()
+
+        self.assertEqual(dados_antes, dados_depois)
+        self.assertEqual(
+            [
+                "chave",
+                "identidade_solicitacao",
+                "resultado_criacao",
+                "publicacao_id",
+                "data_criacao",
+            ],
+            colunas,
+        )
+
+        resultado = self._criar_solicitacao(
+            chave_idempotencia="request-after-migration"
+        )
+        self.assertEqual("AGUARDANDO", resultado["status"])
+        self.assertEqual(1, self._contagens()["publicacoes"])
+        self.assertEqual(
+            1,
+            self._contagens()["idempotencia_solicitacao_publicacao"],
+        )
+
+    def test_repeticao_identica_retorna_o_mesmo_resultado(self):
+        primeiro = self._criar_solicitacao(
+            chave_idempotencia="request-repeat"
+        )
+        segundo = self._criar_solicitacao(
+            chave_idempotencia="request-repeat"
+        )
+
+        self.assertEqual(primeiro, segundo)
+        self.assertEqual(
+            {
+                "publicacoes": 1,
+                "fila_publicacao": 1,
+                "etapas_publicacao": 6,
+                "historico_publicacao": 1,
+                "idempotencia_solicitacao_publicacao": 1,
+            },
+            self._contagens(),
+        )
+
+    def test_repeticao_recupera_resultado_original_apos_mudanca_de_estado(self):
+        primeiro = self._criar_solicitacao(
+            chave_idempotencia="request-after-state-change"
+        )
+        publicacao_id = primeiro["publicacao_id"]
+        atualizar_publicacao(
+            publicacao_id,
+            status="PROCESSANDO",
+        )
+        atualizar_item_fila(
+            publicacao_id,
+            status="PROCESSANDO",
+        )
+        contagens_antes = self._contagens()
+
+        segundo = self._criar_solicitacao(
+            chave_idempotencia="request-after-state-change"
+        )
+        publicacao_atual = obter_publicacao(publicacao_id)
+        fila_atual = obter_item_fila(publicacao_id)
+        if publicacao_atual is None or fila_atual is None:
+            self.fail("solicitação existente não foi preservada")
+
+        self.assertEqual(primeiro, segundo)
+        self.assertEqual(publicacao_id, segundo["publicacao_id"])
+        self.assertEqual("AGUARDANDO", segundo["status"])
+        self.assertEqual("PROCESSANDO", publicacao_atual["status"])
+        self.assertEqual("PROCESSANDO", fila_atual["status"])
+        self.assertEqual(contagens_antes, self._contagens())
+
+    def test_mesma_chave_com_payload_diferente_e_rejeitada_sem_escrita(self):
+        primeiro = self._criar_solicitacao(
+            chave_idempotencia="request-conflict"
+        )
+        contagens_antes = self._contagens()
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "idempotency_conflict",
+        ) as contexto:
+            self._criar_solicitacao(
+                chave_idempotencia="request-conflict",
+                privacidade="unlisted",
+            )
+
+        self.assertEqual(
+            "idempotency_conflict",
+            getattr(contexto.exception, "codigo", None),
+        )
+        self.assertEqual(contagens_antes, self._contagens())
+        self.assertEqual(
+            primeiro["publicacao_id"],
+            obter_publicacao(primeiro["publicacao_id"])["id"],
+        )
+
+    def test_solicitacoes_concorrentes_com_mesma_chave_criam_um_registro(self):
+        barreira = threading.Barrier(2)
+        resultados = []
+        erros = []
+
+        def solicitar():
+            try:
+                barreira.wait(timeout=2)
+                resultados.append(self._criar_solicitacao(
+                    chave_idempotencia="request-race"
+                ))
+            except Exception as erro:
+                erros.append(erro)
+
+        threads = [threading.Thread(target=solicitar) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=5)
+
+        self.assertEqual([], erros)
+        self.assertEqual(2, len(resultados))
+        self.assertEqual(resultados[0], resultados[1])
+        self.assertEqual(1, self._contagens()["publicacoes"])
+        self.assertEqual(1, self._contagens()["idempotencia_solicitacao_publicacao"])
+
+    def test_chamada_legada_permanece_sem_registro_de_idempotencia(self):
+        resultado = InterfaceAutoTube(self.servico).solicitar_publicacao(
+            "conteudo-1",
+            canal_id="UC1234567890",
+        )
+
+        self.assertEqual("AGUARDANDO", resultado["status"])
+        self.assertEqual(1, self._contagens()["publicacoes"])
+        self.assertEqual(
+            0,
+            self._contagens()["idempotencia_solicitacao_publicacao"],
+        )
+
+    def test_falha_ao_persistir_idempotencia_reverte_toda_a_solicitacao(self):
+        conexao = database.conectar_banco()
+        try:
+            conexao.execute(
+                """
+                CREATE TRIGGER falhar_idempotencia
+                BEFORE INSERT ON idempotencia_solicitacao_publicacao
+                BEGIN
+                    SELECT RAISE(ABORT, 'falha simulada');
+                END;
+                """
+            )
+            conexao.commit()
+        finally:
+            conexao.close()
+
+        with self.assertRaises(sqlite3.IntegrityError):
+            self._criar_solicitacao(chave_idempotencia="request-rollback")
+
+        self.assertEqual(
+            {
+                "publicacoes": 0,
+                "fila_publicacao": 0,
+                "etapas_publicacao": 0,
+                "historico_publicacao": 0,
+                "idempotencia_solicitacao_publicacao": 0,
+            },
+            self._contagens(),
+        )
 
 
 if __name__ == "__main__":

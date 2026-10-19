@@ -34,6 +34,7 @@ from core.repositorio_publicacao import (
     listar_publicacoes,
     obter_item_fila,
     obter_publicacao,
+    obter_resultado_solicitacao_idempotente,
     publicacao_bloqueia_nova_solicitacao,
     registrar_evento_etapa_atomico,
     registrar_historico,
@@ -247,6 +248,21 @@ class ServicoPublicacaoDB:
             "agendado_para": agendado_para,
         }
 
+    def _normalizar_chave_idempotencia(self, chave_idempotencia):
+        """Valida a chave opaca sem registrá-la ou alterar seu valor."""
+
+        if chave_idempotencia is None:
+            return None
+        if not isinstance(chave_idempotencia, str):
+            raise ValueError("chave_idempotencia deve ser uma string")
+        if (
+            not chave_idempotencia
+            or chave_idempotencia != chave_idempotencia.strip()
+            or len(chave_idempotencia) > 255
+        ):
+            raise ValueError("chave_idempotencia inválida")
+        return chave_idempotencia
+
     def _resultado_previsualizacao(
         self,
         parametros,
@@ -403,6 +419,7 @@ class ServicoPublicacaoDB:
         prioridade=100,
         plataforma=PLATAFORMA_YOUTUBE,
         agendado_para=None,
+        chave_idempotencia=None,
     ):
         """
         Cria uma solicitação de publicação
@@ -429,6 +446,25 @@ class ServicoPublicacaoDB:
         prioridade = parametros["prioridade"]
         plataforma = parametros["plataforma"]
         agendado_para = parametros["agendado_para"]
+        chave_idempotencia = self._normalizar_chave_idempotencia(
+            chave_idempotencia
+        )
+        identidade_solicitacao = {
+            **parametros,
+            "max_tentativas": 3,
+        }
+
+        if chave_idempotencia is not None:
+            resultado_existente = obter_resultado_solicitacao_idempotente(
+                chave_idempotencia,
+                identidade_solicitacao,
+            )
+            if resultado_existente is not None:
+                logger.info(
+                    "Solicitação idempotente recuperada | publicacao_id=%s",
+                    resultado_existente["publicacao_id"],
+                )
+                return resultado_existente
 
         conteudo, metadados = (
             self.obter_dados_conteudo(
@@ -441,43 +477,63 @@ class ServicoPublicacaoDB:
             metadados,
         )
 
-        publicacao_id = criar_solicitacao_atomica(
+        resultado_criacao = {
+            "sucesso": True,
+            "publicacao_id": None,
+            "conteudo_id": conteudo_id,
+            "plataforma": plataforma,
+            "status": "AGUARDANDO",
+            "mensagem": "Publicação adicionada à fila.",
+            # Compatibilidade com o CLI atual.
+            "conteudo": conteudo,
+            "metadados": metadados,
+            "video_pipeline": self.adaptar_video_pipeline(conteudo),
+        }
+
+        resultado_repositorio = criar_solicitacao_atomica(
             conteudo_id=conteudo_id,
             plataforma=plataforma,
             canal_id=canal_id,
             privacidade=privacidade,
             prioridade=prioridade,
+            max_tentativas=3,
             agendado_para=agendado_para,
+            chave_idempotencia=chave_idempotencia,
+            identidade_solicitacao=(
+                identidade_solicitacao
+                if chave_idempotencia is not None else None
+            ),
+            resultado_criacao=(
+                resultado_criacao
+                if chave_idempotencia is not None else None
+            ),
         )
 
+        if chave_idempotencia is not None:
+            resultado, recuperada = resultado_repositorio
+            publicacao_id = resultado["publicacao_id"]
+        else:
+            recuperada = False
+            publicacao_id = resultado_repositorio
+            resultado_criacao["publicacao_id"] = publicacao_id
+            resultado = resultado_criacao
+
         logger.info(
-            "Solicitação de publicação criada | "
+            "%s | "
             "publicacao_id=%s | "
             "conteudo_id=%s | "
             "plataforma=%s",
+            (
+                "Solicitação idempotente recuperada"
+                if recuperada
+                else "Solicitação de publicação criada"
+            ),
             publicacao_id,
             conteudo_id,
             plataforma,
         )
 
-        return {
-            "sucesso": True,
-            "publicacao_id": publicacao_id,
-            "conteudo_id": conteudo_id,
-            "plataforma": plataforma,
-            "status": "AGUARDANDO",
-            "mensagem": (
-                "Publicação adicionada à fila."
-            ),
-            # Compatibilidade com o CLI atual.
-            "conteudo": conteudo,
-            "metadados": metadados,
-            "video_pipeline": (
-                self.adaptar_video_pipeline(
-                    conteudo
-                )
-            ),
-        }
+        return resultado
 
     def criar_etapas_youtube(
         self,

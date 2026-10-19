@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from uuid import uuid4
 
@@ -49,6 +50,17 @@ STATUS_BLOQUEANTES = {
 }
 
 
+class ConflitoIdempotenciaError(RuntimeError):
+    """Indica reutilização da chave com outra identidade de solicitação."""
+
+    codigo = "idempotency_conflict"
+
+    def __init__(self):
+        super().__init__(
+            "idempotency_conflict: chave já utilizada com outros parâmetros"
+        )
+
+
 def publicacao_bloqueia_nova_solicitacao(publicacao):
     """Aplica a regra comum de duplicidade sem alterar persistência."""
 
@@ -63,6 +75,43 @@ def publicacao_bloqueia_nova_solicitacao(publicacao):
 # ============================================================
 
 
+def serializar_contrato_idempotente(valor):
+    return json.dumps(
+        valor,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def obter_resultado_solicitacao_idempotente(
+    chave_idempotencia,
+    identidade_solicitacao,
+):
+    """Recupera resposta persistida sem repetir a criação."""
+
+    identidade_serializada = serializar_contrato_idempotente(
+        identidade_solicitacao
+    )
+    conexao = conectar_banco()
+    try:
+        registro = conexao.execute(
+            """
+            SELECT identidade_solicitacao, resultado_criacao
+            FROM idempotencia_solicitacao_publicacao
+            WHERE chave = ?;
+            """,
+            (chave_idempotencia,),
+        ).fetchone()
+        if registro is None:
+            return None
+        if registro["identidade_solicitacao"] != identidade_serializada:
+            raise ConflitoIdempotenciaError()
+        return json.loads(registro["resultado_criacao"])
+    finally:
+        conexao.close()
+
+
 def criar_solicitacao_atomica(
     conteudo_id,
     plataforma,
@@ -72,15 +121,54 @@ def criar_solicitacao_atomica(
     max_tentativas=3,
     agendado_para=None,
     publicacao_id=None,
+    chave_idempotencia=None,
+    identidade_solicitacao=None,
+    resultado_criacao=None,
 ):
     """Cria publicação, fila, etapas e histórico em uma transação."""
 
     publicacao_id = publicacao_id or gerar_id_publicacao()
     agora = agora_iso()
+    identidade_serializada = None
+    resultado_serializado = None
+    if chave_idempotencia is not None:
+        if not isinstance(identidade_solicitacao, dict):
+            raise ValueError("identidade_solicitacao é obrigatória")
+        if not isinstance(resultado_criacao, dict):
+            raise ValueError("resultado_criacao é obrigatório")
+        identidade_serializada = serializar_contrato_idempotente(
+            identidade_solicitacao
+        )
+        resultado_persistido = dict(resultado_criacao)
+        resultado_persistido["publicacao_id"] = publicacao_id
+        resultado_serializado = serializar_contrato_idempotente(
+            resultado_persistido
+        )
     conexao = conectar_banco()
 
     try:
         conexao.execute("BEGIN IMMEDIATE;")
+        if chave_idempotencia is not None:
+            registro_idempotente = conexao.execute(
+                """
+                SELECT identidade_solicitacao, resultado_criacao
+                FROM idempotencia_solicitacao_publicacao
+                WHERE chave = ?;
+                """,
+                (chave_idempotencia,),
+            ).fetchone()
+            if registro_idempotente is not None:
+                if (
+                    registro_idempotente["identidade_solicitacao"]
+                    != identidade_serializada
+                ):
+                    raise ConflitoIdempotenciaError()
+                conexao.commit()
+                return (
+                    json.loads(registro_idempotente["resultado_criacao"]),
+                    True,
+                )
+
         cursor = conexao.execute(
             """
             SELECT id, status, external_id
@@ -168,7 +256,32 @@ def criar_solicitacao_atomica(
                 agora,
             ),
         )
+        if chave_idempotencia is not None:
+            conexao.execute(
+                """
+                INSERT INTO idempotencia_solicitacao_publicacao (
+                    chave, identidade_solicitacao,
+                    resultado_criacao, publicacao_id,
+                    data_criacao
+                )
+                VALUES (?, ?, ?, ?, ?);
+                """,
+                (
+                    chave_idempotencia,
+                    identidade_serializada,
+                    resultado_serializado,
+                    publicacao_id,
+                    agora,
+                ),
+            )
         conexao.commit()
+        if chave_idempotencia is not None:
+            if resultado_serializado is None:
+                raise RuntimeError("resultado idempotente não foi serializado")
+            return (
+                json.loads(resultado_serializado),
+                False,
+            )
         return publicacao_id
     except Exception:
         conexao.rollback()

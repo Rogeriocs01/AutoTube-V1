@@ -23,16 +23,20 @@ class InterfaceAutoTube:
         prioridade=100,
         plataforma="YOUTUBE",
         agendado_para=None,
+        chave_idempotencia=None,
     ):
         """Cria uma solicitação e a adiciona à fila. Não executa upload."""
-        return self._servico.criar_solicitacao(
-            conteudo_id=conteudo_id,
-            privacidade=privacidade,
-            canal_id=canal_id,
-            prioridade=prioridade,
-            plataforma=plataforma,
-            agendado_para=agendado_para,
-        )
+        parametros = {
+            "conteudo_id": conteudo_id,
+            "privacidade": privacidade,
+            "canal_id": canal_id,
+            "prioridade": prioridade,
+            "plataforma": plataforma,
+            "agendado_para": agendado_para,
+        }
+        if chave_idempotencia is not None:
+            parametros["chave_idempotencia"] = chave_idempotencia
+        return self._servico.criar_solicitacao(**parametros)
 
     def previsualizar_publicacao(
         self,

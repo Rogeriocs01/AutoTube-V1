@@ -91,6 +91,32 @@ def garantir_coluna(
     return True
 
 
+def migrar_idempotencia_solicitacao_publicacao(
+    conexao,
+):
+    """Cria o registro transacional de idempotência quando ausente."""
+
+    conexao.execute(
+        """
+        CREATE TABLE IF NOT EXISTS idempotencia_solicitacao_publicacao (
+            chave TEXT PRIMARY KEY,
+            identidade_solicitacao TEXT NOT NULL,
+            resultado_criacao TEXT NOT NULL,
+            publicacao_id TEXT NOT NULL UNIQUE,
+            data_criacao TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+            FOREIGN KEY (
+                publicacao_id
+            )
+            REFERENCES publicacoes (
+                id
+            )
+            ON DELETE RESTRICT
+        );
+        """
+    )
+
+
 def atualizar_schema_existente(
     conexao,
 ):
@@ -115,6 +141,10 @@ def atualizar_schema_existente(
         nome_tabela="metadados",
         nome_coluna="thumbnail_nome_arquivo",
         definicao="TEXT",
+    )
+
+    migrar_idempotencia_solicitacao_publicacao(
+        conexao
     )
 
 
