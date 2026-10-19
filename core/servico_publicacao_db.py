@@ -21,21 +21,21 @@ from core.repositorio import (
 )
 
 from core.repositorio_publicacao import (
-    adicionar_na_fila,
+    adquirir_execucao,
     atualizar_item_fila,
     atualizar_publicacao,
-    criar_publicacao,
+    criar_solicitacao_atomica,
+    finalizar_execucao_atomica,
     incrementar_tentativa_fila,
-    incrementar_tentativa_etapa,
     listar_etapas,
     listar_fila,
     listar_historico,
     listar_publicacoes,
     obter_item_fila,
     obter_publicacao,
+    registrar_evento_etapa_atomico,
     registrar_historico,
     salvar_etapa,
-    atualizar_etapa,
 )
 
 
@@ -200,6 +200,7 @@ class ServicoPublicacaoDB:
         canal_id=None,
         prioridade=100,
         plataforma=PLATAFORMA_YOUTUBE,
+        agendado_para=None,
     ):
         """
         Cria uma solicitação de publicação
@@ -212,6 +213,11 @@ class ServicoPublicacaoDB:
         Não executa upload.
         """
 
+        if not isinstance(conteudo_id, str) or not conteudo_id.strip():
+            raise ValueError("conteudo_id deve ser um identificador não vazio")
+        if conteudo_id != conteudo_id.strip() or len(conteudo_id) > 255:
+            raise ValueError("conteudo_id inválido")
+
         plataforma = str(
             plataforma or ""
         ).strip().upper()
@@ -221,6 +227,34 @@ class ServicoPublicacaoDB:
                 "Plataforma ainda não suportada: "
                 f"{plataforma or 'não informada'}"
             )
+
+        privacidade = str(privacidade or "").strip().lower()
+        if privacidade not in {"private", "public", "unlisted"}:
+            raise ValueError(
+                "Privacidade inválida. Use private, public ou unlisted."
+            )
+
+        if isinstance(prioridade, bool) or not isinstance(prioridade, int):
+            raise ValueError("Prioridade deve ser um número inteiro")
+        if prioridade < 0 or prioridade > 1000000:
+            raise ValueError("Prioridade fora do intervalo permitido")
+
+        if canal_id is not None:
+            if not isinstance(canal_id, str) or not canal_id.strip():
+                raise ValueError("canal_id deve ser um identificador não vazio")
+            if canal_id != canal_id.strip() or len(canal_id) > 255:
+                raise ValueError("canal_id inválido")
+
+        if agendado_para is not None:
+            if not isinstance(agendado_para, str) or not agendado_para.strip():
+                raise ValueError("agendado_para deve estar em formato ISO 8601")
+            try:
+                from datetime import datetime
+                datetime.fromisoformat(agendado_para)
+            except ValueError as erro:
+                raise ValueError(
+                    "agendado_para deve estar em formato ISO 8601"
+                ) from erro
 
         conteudo, metadados = (
             self.obter_dados_conteudo(
@@ -233,46 +267,13 @@ class ServicoPublicacaoDB:
             metadados,
         )
 
-        conflitante = (
-            self.obter_publicacao_conflitante(
-                conteudo_id=conteudo_id,
-                plataforma=plataforma,
-            )
-        )
-
-        if conflitante is not None:
-            raise RuntimeError(
-                "Conteúdo já possui publicação "
-                "bloqueante para esta plataforma. "
-                f"publicacao_id={conflitante['id']} | "
-                f"status={conflitante['status']}"
-            )
-
-        publicacao_id = criar_publicacao(
+        publicacao_id = criar_solicitacao_atomica(
             conteudo_id=conteudo_id,
             plataforma=plataforma,
             canal_id=canal_id,
             privacidade=privacidade,
-            status="AGUARDANDO",
-        )
-
-        adicionar_na_fila(
-            publicacao_id=publicacao_id,
             prioridade=prioridade,
-            status="AGUARDANDO",
-        )
-
-        self.criar_etapas_youtube(
-            publicacao_id
-        )
-
-        registrar_historico(
-            publicacao_id=publicacao_id,
-            etapa="CRIACAO",
-            status="AGUARDANDO",
-            mensagem=(
-                "Solicitação de publicação criada"
-            ),
+            agendado_para=agendado_para,
         )
 
         logger.info(
@@ -367,51 +368,9 @@ class ServicoPublicacaoDB:
         dados=None,
     ):
         """Persiste no SQLite um evento técnico do pipeline."""
-        from core.repositorio_publicacao import agora_iso
-
         dados = dados or {}
-        agora = agora_iso()
-
-        if status == "PROCESSANDO":
-            incrementar_tentativa_etapa(publicacao_id, etapa)
-            atualizar_etapa(
-                publicacao_id=publicacao_id,
-                etapa=etapa,
-                status="PROCESSANDO",
-                data_inicio=agora,
-                ultimo_erro="",
-            )
-        elif status in ("CONCLUIDO", "IGNORADO"):
-            atualizar_etapa(
-                publicacao_id=publicacao_id,
-                etapa=etapa,
-                status=status,
-                data_conclusao=agora,
-                ultimo_erro="",
-            )
-        elif status == "ERRO":
-            atualizar_etapa(
-                publicacao_id=publicacao_id,
-                etapa=etapa,
-                status="ERRO",
-                data_conclusao=agora,
-                ultimo_erro=mensagem or "Falha na etapa",
-            )
-        else:
-            atualizar_etapa(
-                publicacao_id=publicacao_id,
-                etapa=etapa,
-                status=status,
-            )
-
         youtube_id = dados.get("youtube_id")
-        if etapa == "UPLOAD" and status == "CONCLUIDO" and youtube_id:
-            atualizar_publicacao(
-                publicacao_id=publicacao_id,
-                external_id=youtube_id,
-            )
-
-        registrar_historico(
+        registrar_evento_etapa_atomico(
             publicacao_id=publicacao_id,
             etapa=etapa,
             status=status,
@@ -420,6 +379,7 @@ class ServicoPublicacaoDB:
                 f"youtube_id={youtube_id}"
                 if youtube_id else None
             ),
+            external_id=youtube_id,
         )
 
     def criar_callback_etapas(self, publicacao_id):
@@ -556,11 +516,24 @@ class ServicoPublicacaoDB:
         if not fila:
             return None
 
-        proximo = fila[0]
+        from datetime import datetime
 
-        return self.preparar_execucao(
-            proximo["publicacao_id"]
-        )
+        for item in fila:
+            agendado_para = item.get("agendado_para")
+            if agendado_para:
+                try:
+                    agendamento = datetime.fromisoformat(agendado_para)
+                    referencia = datetime.now(tz=agendamento.tzinfo)
+                except (TypeError, ValueError):
+                    continue
+                if agendamento > referencia:
+                    continue
+
+            return self.preparar_execucao(
+                item["publicacao_id"]
+            )
+
+        return None
 
     def adaptar_job_externo(
         self,
@@ -782,30 +755,12 @@ class ServicoPublicacaoDB:
         completamente concluída.
         """
 
-        from core.repositorio_publicacao import (
-            agora_iso,
-        )
-
-        agora = agora_iso()
-
-        atualizar_publicacao(
+        finalizar_execucao_atomica(
             publicacao_id=publicacao_id,
             status="CONCLUIDO",
             external_id=resultado.youtube_id,
-            data_conclusao=agora,
-        )
-
-        atualizar_item_fila(
-            publicacao_id=publicacao_id,
-            status="CONCLUIDO",
-            finalizado_em=agora,
             ultimo_erro="",
-        )
-
-        registrar_historico(
-            publicacao_id=publicacao_id,
             etapa="FINALIZACAO",
-            status="CONCLUIDO",
             mensagem=(
                 "Publicação concluída com sucesso"
             ),
@@ -837,25 +792,15 @@ class ServicoPublicacaoDB:
         complementar falhou.
         """
 
-        atualizar_publicacao(
+        finalizar_execucao_atomica(
             publicacao_id=publicacao_id,
             status="PARCIAL",
             external_id=resultado.youtube_id,
-        )
-
-        atualizar_item_fila(
-            publicacao_id=publicacao_id,
-            status="PARCIAL",
             ultimo_erro=mensagem,
-        )
-
-        registrar_historico(
-            publicacao_id=publicacao_id,
             etapa=(
                 resultado.etapa
                 or "POS_UPLOAD"
             ),
-            status="PARCIAL",
             mensagem=mensagem,
             detalhes=(
                 f"youtube_id="
@@ -889,24 +834,14 @@ class ServicoPublicacaoDB:
             or "Falha na publicação"
         )
 
-        atualizar_publicacao(
-            publicacao_id=publicacao_id,
-            status="ERRO",
-        )
-
-        atualizar_item_fila(
+        finalizar_execucao_atomica(
             publicacao_id=publicacao_id,
             status="ERRO",
             ultimo_erro=mensagem,
-        )
-
-        registrar_historico(
-            publicacao_id=publicacao_id,
             etapa=(
                 resultado.etapa
                 or "EXECUCAO"
             ),
-            status="ERRO",
             mensagem=mensagem,
         )
 
@@ -917,6 +852,30 @@ class ServicoPublicacaoDB:
             "motivo=%s",
             publicacao_id,
             resultado.etapa,
+            mensagem,
+        )
+
+    def finalizar_reconciliacao(
+        self,
+        publicacao_id,
+        mensagem="Resultado do upload incerto",
+    ):
+        """Bloqueia retry quando o resultado do upload não é comprovável."""
+
+        finalizar_execucao_atomica(
+            publicacao_id=publicacao_id,
+            status="RECONCILIACAO",
+            ultimo_erro=mensagem,
+            etapa="UPLOAD",
+            mensagem=(
+                "Resultado do upload incerto. "
+                "Nova execução bloqueada até reconciliação."
+            ),
+        )
+        logger.error(
+            "Publicação exige reconciliação | "
+            "publicacao_id=%s | motivo=%s",
+            publicacao_id,
             mensagem,
         )
 
@@ -1467,127 +1426,7 @@ class ServicoPublicacaoDB:
             publicacao_id
         )
 
-        publicacao = pacote[
-            "publicacao"
-        ]
-
-        fila = pacote[
-            "fila"
-        ]
-
-        status_publicacao = (
-            publicacao.get(
-                "status"
-            )
-        )
-
-        status_fila = fila.get(
-            "status"
-        )
-
-        tentativas = (
-            fila.get(
-                "tentativas"
-            )
-            or 0
-        )
-
-        max_tentativas = (
-            fila.get(
-                "max_tentativas"
-            )
-            or 0
-        )
-
-        # ---------------------------------
-        # TRAVA 1
-        # Publicação já concluída
-        # ---------------------------------
-
-        if (
-            status_publicacao
-            == "CONCLUIDO"
-        ):
-            raise RuntimeError(
-                "Publicação já concluída. "
-                "Nova execução bloqueada."
-            )
-
-        # ---------------------------------
-        # TRAVA 2
-        # Publicação parcial
-        # ---------------------------------
-
-        if (
-            status_publicacao
-            == "PARCIAL"
-        ):
-            raise RuntimeError(
-                "Publicação parcial detectada. "
-                "Nova execução completa bloqueada "
-                "para evitar upload duplicado."
-            )
-
-        # ---------------------------------
-        # TRAVA 3
-        # Fila concluída ou parcial
-        # ---------------------------------
-
-        if status_fila in (
-            "CONCLUIDO",
-            "PARCIAL",
-        ):
-            raise RuntimeError(
-                "Item da fila não pode ser "
-                "executado novamente. "
-                f"Status atual: {status_fila}"
-            )
-
-        # ---------------------------------
-        # TRAVA 4
-        # Limite de tentativas
-        # ---------------------------------
-
-        if (
-            max_tentativas > 0
-            and tentativas
-            >= max_tentativas
-        ):
-            mensagem = (
-                "Limite máximo de tentativas "
-                "atingido. "
-                f"Tentativas: {tentativas}/"
-                f"{max_tentativas}"
-            )
-
-            registrar_historico(
-                publicacao_id=publicacao_id,
-                etapa="SEGURANCA",
-                status="BLOQUEADO",
-                mensagem=mensagem,
-            )
-
-            logger.warning(
-                "Execução bloqueada | "
-                "publicacao_id=%s | "
-                "tentativas=%s | "
-                "max_tentativas=%s",
-                publicacao_id,
-                tentativas,
-                max_tentativas,
-            )
-
-            raise RuntimeError(
-                mensagem
-            )
-
-        # ---------------------------------
-        # EXECUÇÃO
-        # ---------------------------------
-
-        self.iniciar_processamento(
-            publicacao_id
-        )
+        adquirir_execucao(publicacao_id)
 
         try:
             resultado = processar_publicacao(
@@ -1607,6 +1446,9 @@ class ServicoPublicacaoDB:
                 callback_etapa=self.criar_callback_etapas(
                     publicacao_id
                 ),
+                canal_id_solicitado=pacote[
+                    "canal_id"
+                ],
             )
 
         except Exception as erro:
@@ -1620,12 +1462,35 @@ class ServicoPublicacaoDB:
                 ResultadoPublicacao,
             )
 
+            publicacao_atual = obter_publicacao(publicacao_id) or {}
+            upload = next(
+                (
+                    etapa
+                    for etapa in listar_etapas(publicacao_id)
+                    if etapa.get("etapa") == "UPLOAD"
+                ),
+                None,
+            )
+            external_id = str(
+                publicacao_atual.get("external_id") or ""
+            ).strip() or None
+            upload_incerto = (
+                external_id is None
+                and upload is not None
+                and upload.get("status") == "PROCESSANDO"
+            )
+
             resultado = ResultadoPublicacao.falha(
-                mensagem=str(erro),
+                mensagem="Falha inesperada durante a publicação",
                 video_id=pacote[
                     "video_id"
                 ],
-                etapa="excecao",
+                youtube_id=external_id,
+                etapa=(
+                    "upload_incerto"
+                    if upload_incerto
+                    else "excecao"
+                ),
             )
 
         classificacao = (
@@ -1684,6 +1549,12 @@ class ServicoPublicacaoDB:
                 publicacao_id,
                 resultado,
                 mensagem,
+            )
+
+        elif resultado.etapa == "upload_incerto":
+            self.finalizar_reconciliacao(
+                publicacao_id,
+                resultado.mensagem,
             )
 
         else:

@@ -22,6 +22,7 @@ class InterfaceAutoTube:
         canal_id=None,
         prioridade=100,
         plataforma="YOUTUBE",
+        agendado_para=None,
     ):
         """Cria uma solicitação e a adiciona à fila. Não executa upload."""
         return self._servico.criar_solicitacao(
@@ -30,6 +31,7 @@ class InterfaceAutoTube:
             canal_id=canal_id,
             prioridade=prioridade,
             plataforma=plataforma,
+            agendado_para=agendado_para,
         )
 
     def consultar_proximo_job(self):

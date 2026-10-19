@@ -58,6 +58,7 @@ STATUS_PUBLICACAO_BLOQUEANTES = {
     "PROCESSANDO",
     "PARCIAL",
     "CONCLUIDO",
+    "RECONCILIACAO",
 }
 
 
@@ -78,8 +79,9 @@ def conteudo_tem_publicacao_bloqueante(conteudo_id):
 
     for publicacao in publicacoes:
         status = str(publicacao.get("status") or "").upper()
+        external_id = str(publicacao.get("external_id") or "").strip()
 
-        if status in STATUS_PUBLICACAO_BLOQUEANTES:
+        if status in STATUS_PUBLICACAO_BLOQUEANTES or external_id:
             return True
 
     return False

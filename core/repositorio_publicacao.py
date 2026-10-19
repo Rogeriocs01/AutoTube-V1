@@ -30,9 +30,300 @@ def gerar_id_publicacao():
     )
 
 
+ETAPAS_YOUTUBE = (
+    ("PREPARACAO", True),
+    ("UPLOAD", True),
+    ("PLAYLIST", False),
+    ("THUMBNAIL", False),
+    ("DRIVE", False),
+    ("FINALIZACAO", True),
+)
+
+
+STATUS_BLOQUEANTES = {
+    "AGUARDANDO",
+    "PROCESSANDO",
+    "PARCIAL",
+    "CONCLUIDO",
+    "RECONCILIACAO",
+}
+
+
 # ============================================================
 # PUBLICAÇÕES
 # ============================================================
+
+
+def criar_solicitacao_atomica(
+    conteudo_id,
+    plataforma,
+    canal_id=None,
+    privacidade=None,
+    prioridade=100,
+    max_tentativas=3,
+    agendado_para=None,
+    publicacao_id=None,
+):
+    """Cria publicação, fila, etapas e histórico em uma transação."""
+
+    publicacao_id = publicacao_id or gerar_id_publicacao()
+    agora = agora_iso()
+    conexao = conectar_banco()
+
+    try:
+        conexao.execute("BEGIN IMMEDIATE;")
+        cursor = conexao.execute(
+            """
+            SELECT id, status, external_id
+            FROM publicacoes
+            WHERE conteudo_id = ?
+              AND plataforma = ?
+            ORDER BY data_criacao;
+            """,
+            (conteudo_id, plataforma),
+        )
+
+        for existente in cursor.fetchall():
+            status = str(existente["status"] or "").upper()
+            external_id = str(existente["external_id"] or "").strip()
+            if status in STATUS_BLOQUEANTES or external_id:
+                raise RuntimeError(
+                    "Conteúdo já possui publicação bloqueante "
+                    "para esta plataforma. "
+                    f"publicacao_id={existente['id']} | "
+                    f"status={existente['status']}"
+                )
+
+        conexao.execute(
+            """
+            INSERT INTO publicacoes (
+                id, conteudo_id, plataforma, canal_id, privacidade,
+                status, data_criacao, data_atualizacao
+            )
+            VALUES (?, ?, ?, ?, ?, 'AGUARDANDO', ?, ?);
+            """,
+            (
+                publicacao_id,
+                conteudo_id,
+                plataforma,
+                canal_id,
+                privacidade,
+                agora,
+                agora,
+            ),
+        )
+        conexao.execute(
+            """
+            INSERT INTO fila_publicacao (
+                publicacao_id, prioridade, status, tentativas,
+                max_tentativas, agendado_para, data_criacao,
+                data_atualizacao
+            )
+            VALUES (?, ?, 'AGUARDANDO', 0, ?, ?, ?, ?);
+            """,
+            (
+                publicacao_id,
+                prioridade,
+                max_tentativas,
+                agendado_para,
+                agora,
+                agora,
+            ),
+        )
+
+        for etapa, obrigatoria in ETAPAS_YOUTUBE:
+            conexao.execute(
+                """
+                INSERT INTO etapas_publicacao (
+                    publicacao_id, etapa, status, obrigatoria,
+                    tentativas, data_atualizacao
+                )
+                VALUES (?, ?, 'AGUARDANDO', ?, 0, ?);
+                """,
+                (
+                    publicacao_id,
+                    etapa,
+                    1 if obrigatoria else 0,
+                    agora,
+                ),
+            )
+
+        conexao.execute(
+            """
+            INSERT INTO historico_publicacao (
+                publicacao_id, etapa, status, mensagem, data_evento
+            )
+            VALUES (?, 'CRIACAO', 'AGUARDANDO', ?, ?);
+            """,
+            (
+                publicacao_id,
+                "Solicitação de publicação criada",
+                agora,
+            ),
+        )
+        conexao.commit()
+        return publicacao_id
+    except Exception:
+        conexao.rollback()
+        raise
+    finally:
+        conexao.close()
+
+
+def adquirir_execucao(publicacao_id):
+    """Adquire atomicamente o direito exclusivo de executar um job."""
+
+    agora = agora_iso()
+    conexao = conectar_banco()
+
+    try:
+        conexao.execute("BEGIN IMMEDIATE;")
+        cursor = conexao.execute(
+            """
+            SELECT
+                publicacoes.conteudo_id,
+                publicacoes.plataforma,
+                publicacoes.status AS status_publicacao,
+                publicacoes.external_id,
+                fila_publicacao.status AS status_fila,
+                fila_publicacao.tentativas,
+                fila_publicacao.max_tentativas,
+                fila_publicacao.agendado_para
+            FROM publicacoes
+            INNER JOIN fila_publicacao
+                ON fila_publicacao.publicacao_id = publicacoes.id
+            WHERE publicacoes.id = ?;
+            """,
+            (publicacao_id,),
+        )
+        estado = cursor.fetchone()
+
+        if estado is None:
+            raise ValueError(
+                f"Publicação ou fila não encontrada: {publicacao_id}"
+            )
+
+        status_publicacao = str(estado["status_publicacao"] or "").upper()
+        status_fila = str(estado["status_fila"] or "").upper()
+        external_id = str(estado["external_id"] or "").strip()
+        tentativas = estado["tentativas"] or 0
+        max_tentativas = estado["max_tentativas"] or 0
+
+        conflito = conexao.execute(
+            """
+            SELECT id, status, external_id
+            FROM publicacoes
+            WHERE conteudo_id = ?
+              AND plataforma = ?
+              AND id <> ?
+              AND (
+                    status IN (
+                        'PROCESSANDO', 'PARCIAL', 'CONCLUIDO',
+                        'RECONCILIACAO'
+                    )
+                    OR (external_id IS NOT NULL AND TRIM(external_id) <> '')
+                  )
+            LIMIT 1;
+            """,
+            (
+                estado["conteudo_id"],
+                estado["plataforma"],
+                publicacao_id,
+            ),
+        ).fetchone()
+
+        if conflito is not None:
+            raise RuntimeError(
+                "Execução bloqueada: outra publicação do mesmo conteúdo e "
+                "plataforma já está processando ou possui upload realizado."
+            )
+
+        if external_id:
+            raise RuntimeError(
+                "Execução bloqueada: external_id indica upload já realizado."
+            )
+        if status_publicacao not in {"AGUARDANDO", "ERRO"}:
+            raise RuntimeError(
+                "Publicação não pode ser executada. "
+                f"Status atual: {status_publicacao}"
+            )
+        if status_fila not in {"AGUARDANDO", "ERRO"}:
+            raise RuntimeError(
+                "Item da fila não pode ser executado. "
+                f"Status atual: {status_fila}"
+            )
+        if max_tentativas > 0 and tentativas >= max_tentativas:
+            raise RuntimeError(
+                "Limite máximo de tentativas atingido. "
+                f"Tentativas: {tentativas}/{max_tentativas}"
+            )
+
+        agendado_para = estado["agendado_para"]
+        if agendado_para:
+            try:
+                agendamento = datetime.fromisoformat(agendado_para)
+                referencia = datetime.now(tz=agendamento.tzinfo)
+            except (TypeError, ValueError) as erro:
+                raise RuntimeError(
+                    "Agendamento inválido; execução bloqueada."
+                ) from erro
+            if agendamento > referencia:
+                raise RuntimeError(
+                    "Execução antecipada bloqueada: trabalho agendado para o futuro."
+                )
+
+        cursor_publicacao = conexao.execute(
+            """
+            UPDATE publicacoes
+            SET status = 'PROCESSANDO', data_inicio = ?,
+                data_atualizacao = ?
+            WHERE id = ?
+              AND status IN ('AGUARDANDO', 'ERRO')
+              AND (external_id IS NULL OR TRIM(external_id) = '');
+            """,
+            (agora, agora, publicacao_id),
+        )
+        cursor_fila = conexao.execute(
+            """
+            UPDATE fila_publicacao
+            SET status = 'PROCESSANDO', tentativas = tentativas + 1,
+                iniciado_em = ?, ultimo_erro = '', data_atualizacao = ?
+            WHERE publicacao_id = ?
+              AND status IN ('AGUARDANDO', 'ERRO');
+            """,
+            (agora, agora, publicacao_id),
+        )
+
+        if cursor_publicacao.rowcount != 1 or cursor_fila.rowcount != 1:
+            raise RuntimeError(
+                "Execução não adquirida; o job foi assumido por outro processo."
+            )
+
+        conexao.execute(
+            """
+            INSERT INTO historico_publicacao (
+                publicacao_id, etapa, status, mensagem, data_evento
+            )
+            VALUES (?, 'EXECUCAO', 'PROCESSANDO', ?, ?);
+            """,
+            (
+                publicacao_id,
+                "Processamento da publicação iniciado",
+                agora,
+            ),
+        )
+        conexao.commit()
+        return {
+            "status_publicacao": "PROCESSANDO",
+            "status_fila": "PROCESSANDO",
+            "tentativas": tentativas + 1,
+            "max_tentativas": max_tentativas,
+        }
+    except Exception:
+        conexao.rollback()
+        raise
+    finally:
+        conexao.close()
 
 
 def criar_publicacao(
@@ -888,6 +1179,190 @@ def registrar_historico(
 
         return cursor.lastrowid
 
+    finally:
+        conexao.close()
+
+
+def registrar_evento_etapa_atomico(
+    publicacao_id,
+    etapa,
+    status,
+    mensagem=None,
+    detalhes=None,
+    external_id=None,
+):
+    """Atualiza etapa, resultado do upload e histórico atomicamente."""
+
+    agora = agora_iso()
+    conexao = conectar_banco()
+
+    try:
+        conexao.execute("BEGIN IMMEDIATE;")
+
+        if status == "PROCESSANDO":
+            cursor = conexao.execute(
+                """
+                UPDATE etapas_publicacao
+                SET status = 'PROCESSANDO', tentativas = tentativas + 1,
+                    ultimo_erro = '', data_inicio = ?, data_atualizacao = ?
+                WHERE publicacao_id = ? AND etapa = ?;
+                """,
+                (agora, agora, publicacao_id, etapa),
+            )
+        elif status in ("CONCLUIDO", "IGNORADO"):
+            cursor = conexao.execute(
+                """
+                UPDATE etapas_publicacao
+                SET status = ?, ultimo_erro = '', data_conclusao = ?,
+                    data_atualizacao = ?
+                WHERE publicacao_id = ? AND etapa = ?;
+                """,
+                (status, agora, agora, publicacao_id, etapa),
+            )
+        elif status == "ERRO":
+            cursor = conexao.execute(
+                """
+                UPDATE etapas_publicacao
+                SET status = 'ERRO', ultimo_erro = ?, data_conclusao = ?,
+                    data_atualizacao = ?
+                WHERE publicacao_id = ? AND etapa = ?;
+                """,
+                (
+                    mensagem or "Falha na etapa",
+                    agora,
+                    agora,
+                    publicacao_id,
+                    etapa,
+                ),
+            )
+        else:
+            cursor = conexao.execute(
+                """
+                UPDATE etapas_publicacao
+                SET status = ?, data_atualizacao = ?
+                WHERE publicacao_id = ? AND etapa = ?;
+                """,
+                (status, agora, publicacao_id, etapa),
+            )
+
+        if cursor.rowcount != 1:
+            raise ValueError(
+                f"Etapa não encontrada: {publicacao_id}/{etapa}"
+            )
+
+        if etapa == "UPLOAD" and status == "CONCLUIDO" and external_id:
+            conexao.execute(
+                """
+                UPDATE publicacoes
+                SET external_id = ?, data_atualizacao = ?
+                WHERE id = ?;
+                """,
+                (external_id, agora, publicacao_id),
+            )
+
+        conexao.execute(
+            """
+            INSERT INTO historico_publicacao (
+                publicacao_id, etapa, status, mensagem, detalhes, data_evento
+            )
+            VALUES (?, ?, ?, ?, ?, ?);
+            """,
+            (
+                publicacao_id,
+                etapa,
+                status,
+                mensagem,
+                detalhes,
+                agora,
+            ),
+        )
+        conexao.commit()
+    except Exception:
+        conexao.rollback()
+        raise
+    finally:
+        conexao.close()
+
+
+def finalizar_execucao_atomica(
+    publicacao_id,
+    status,
+    etapa,
+    mensagem,
+    external_id=None,
+    ultimo_erro=None,
+    detalhes=None,
+):
+    """Finaliza publicação, fila e histórico em uma transação."""
+
+    agora = agora_iso()
+    conexao = conectar_banco()
+
+    try:
+        conexao.execute("BEGIN IMMEDIATE;")
+        if external_id:
+            conexao.execute(
+                """
+                UPDATE publicacoes
+                SET status = ?, external_id = ?,
+                    data_conclusao = CASE WHEN ? = 'CONCLUIDO' THEN ?
+                                         ELSE data_conclusao END,
+                    data_atualizacao = ?
+                WHERE id = ?;
+                """,
+                (status, external_id, status, agora, agora, publicacao_id),
+            )
+        else:
+            conexao.execute(
+                """
+                UPDATE publicacoes
+                SET status = ?,
+                    data_conclusao = CASE WHEN ? = 'CONCLUIDO' THEN ?
+                                         ELSE data_conclusao END,
+                    data_atualizacao = ?
+                WHERE id = ?;
+                """,
+                (status, status, agora, agora, publicacao_id),
+            )
+
+        conexao.execute(
+            """
+            UPDATE fila_publicacao
+            SET status = ?, ultimo_erro = ?,
+                finalizado_em = CASE WHEN ? = 'CONCLUIDO' THEN ?
+                                     ELSE finalizado_em END,
+                data_atualizacao = ?
+            WHERE publicacao_id = ?;
+            """,
+            (
+                status,
+                ultimo_erro or "",
+                status,
+                agora,
+                agora,
+                publicacao_id,
+            ),
+        )
+        conexao.execute(
+            """
+            INSERT INTO historico_publicacao (
+                publicacao_id, etapa, status, mensagem, detalhes, data_evento
+            )
+            VALUES (?, ?, ?, ?, ?, ?);
+            """,
+            (
+                publicacao_id,
+                etapa,
+                status,
+                mensagem,
+                detalhes,
+                agora,
+            ),
+        )
+        conexao.commit()
+    except Exception:
+        conexao.rollback()
+        raise
     finally:
         conexao.close()
 

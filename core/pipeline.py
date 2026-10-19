@@ -48,9 +48,8 @@ def excluir_arquivo_temporario(
 
     except OSError as erro:
         print(
-            "Não foi possível excluir "
-            "o arquivo temporário: "
-            f"{erro}"
+            "Não foi possível concluir a limpeza "
+            "de um arquivo temporário."
         )
 
         logger.warning(
@@ -138,14 +137,18 @@ def notificar_etapa(
     )
 
 
-def processar_publicacao(
+def _processar_publicacao(
     video_id,
     video,
     privacidade,
     pedir_confirmacao=True,
     metadados_override=None,
     callback_etapa=None,
+    canal_id_solicitado=None,
+    _arquivos_temporarios=None,
 ):
+    if _arquivos_temporarios is None:
+        _arquivos_temporarios = []
     notificar_etapa(
         callback_etapa,
         "PREPARACAO",
@@ -339,6 +342,29 @@ def processar_publicacao(
         canal["id"],
     )
 
+    if (
+        canal_id_solicitado is not None
+        and canal["id"] != canal_id_solicitado
+    ):
+        logger.error(
+            "Publicação interrompida | motivo=canal solicitado divergente | "
+            "video_id=%s | canal_solicitado=%s | canal_autenticado=%s",
+            video_id,
+            canal_id_solicitado,
+            canal["id"],
+        )
+        notificar_etapa(
+            callback_etapa,
+            "PREPARACAO",
+            "ERRO",
+            mensagem="Canal solicitado não corresponde ao canal autenticado",
+        )
+        return ResultadoPublicacao.falha(
+            mensagem="Canal solicitado não corresponde ao canal autenticado",
+            video_id=video_id,
+            etapa="canal_divergente",
+        )
+
     playlist_id = metadados.get(
         "playlist_id",
         "",
@@ -361,6 +387,9 @@ def processar_publicacao(
     caminho_thumbnail = baixar_thumbnail(
         nome_video=nome_arquivo
     )
+
+    if caminho_thumbnail:
+        _arquivos_temporarios.append(caminho_thumbnail)
 
     if caminho_thumbnail:
         status_thumbnail = (
@@ -390,6 +419,9 @@ def processar_publicacao(
         video_id=video_id,
         video=video,
     )
+
+    if caminho_local:
+        _arquivos_temporarios.append(caminho_local)
 
     if caminho_local is None:
         if caminho_thumbnail:
@@ -844,3 +876,31 @@ def processar_publicacao(
         thumbnail_ok=thumbnail_ok,
         drive_ok=movido,
     )
+
+
+def processar_publicacao(
+    video_id,
+    video,
+    privacidade,
+    pedir_confirmacao=True,
+    metadados_override=None,
+    callback_etapa=None,
+    canal_id_solicitado=None,
+):
+    """Executa o pipeline e sempre limpa os arquivos temporários criados."""
+
+    arquivos_temporarios = []
+    try:
+        return _processar_publicacao(
+            video_id=video_id,
+            video=video,
+            privacidade=privacidade,
+            pedir_confirmacao=pedir_confirmacao,
+            metadados_override=metadados_override,
+            callback_etapa=callback_etapa,
+            canal_id_solicitado=canal_id_solicitado,
+            _arquivos_temporarios=arquivos_temporarios,
+        )
+    finally:
+        for caminho in arquivos_temporarios:
+            excluir_arquivo_temporario(caminho)
