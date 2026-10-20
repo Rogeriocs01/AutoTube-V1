@@ -117,6 +117,41 @@ def migrar_idempotencia_solicitacao_publicacao(
     )
 
 
+def migrar_autorizacao_supervisionada_publicacao(
+    conexao,
+):
+    """Cria a auditoria de autorizações consumidas quando ausente."""
+
+    conexao.execute(
+        """
+        CREATE TABLE IF NOT EXISTS autorizacoes_publicacao_consumidas (
+            autorizacao_id TEXT PRIMARY KEY,
+            publicacao_id TEXT NOT NULL UNIQUE,
+            emissor_id TEXT NOT NULL,
+            autorizador_id TEXT NOT NULL,
+            confirmado_em TEXT NOT NULL,
+            expira_em TEXT NOT NULL,
+            conteudo_id TEXT NOT NULL,
+            canal_id TEXT,
+            plataforma TEXT NOT NULL,
+            privacidade TEXT NOT NULL,
+            prioridade INTEGER NOT NULL,
+            agendado_para TEXT,
+            snapshot_fingerprint TEXT NOT NULL,
+            consumida_em TEXT NOT NULL,
+
+            FOREIGN KEY (
+                publicacao_id
+            )
+            REFERENCES publicacoes (
+                id
+            )
+            ON DELETE RESTRICT
+        );
+        """
+    )
+
+
 def atualizar_schema_existente(
     conexao,
 ):
@@ -144,6 +179,10 @@ def atualizar_schema_existente(
     )
 
     migrar_idempotencia_solicitacao_publicacao(
+        conexao
+    )
+
+    migrar_autorizacao_supervisionada_publicacao(
         conexao
     )
 

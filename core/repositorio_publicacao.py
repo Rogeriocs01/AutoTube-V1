@@ -3,6 +3,7 @@ import hmac
 from datetime import datetime
 from uuid import uuid4
 
+from core.autorizacao_publicacao import ErroAutorizacaoSupervisionada
 from core.database import conectar_banco
 from core.snapshot_publicacao import calcular_fingerprint_snapshot
 
@@ -138,6 +139,8 @@ def criar_solicitacao_atomica(
     identidade_solicitacao=None,
     resultado_criacao=None,
     snapshot_esperado=None,
+    autorizacao_auditoria=None,
+    validar_autorizacao_transacional=None,
 ):
     """Cria publicação, fila, etapas e histórico em uma transação."""
 
@@ -145,6 +148,16 @@ def criar_solicitacao_atomica(
     agora = agora_iso()
     identidade_serializada = None
     resultado_serializado = None
+    if autorizacao_auditoria is not None and not isinstance(
+        autorizacao_auditoria,
+        dict,
+    ):
+        raise ValueError("autorizacao_auditoria inválida")
+    if (
+        autorizacao_auditoria is not None
+        and not callable(validar_autorizacao_transacional)
+    ):
+        raise ValueError("validador transacional de autorização é obrigatório")
     if chave_idempotencia is not None:
         if not isinstance(identidade_solicitacao, dict):
             raise ValueError("identidade_solicitacao é obrigatória")
@@ -182,6 +195,24 @@ def criar_solicitacao_atomica(
                     json.loads(registro_idempotente["resultado_criacao"]),
                     True,
                 )
+
+        if autorizacao_auditoria is not None:
+            autorizacao_consumida = conexao.execute(
+                """
+                SELECT publicacao_id
+                FROM autorizacoes_publicacao_consumidas
+                WHERE autorizacao_id = ?;
+                """,
+                (autorizacao_auditoria["autorizacao_id"],),
+            ).fetchone()
+            if autorizacao_consumida is not None:
+                raise ErroAutorizacaoSupervisionada(
+                    "authorization_already_used",
+                    "autorização já consumida por outra solicitação",
+                )
+            if not callable(validar_autorizacao_transacional):
+                raise RuntimeError("validador transacional indisponível")
+            validar_autorizacao_transacional()
 
         if snapshot_esperado is not None:
             conteudo_atual = conexao.execute(
@@ -311,6 +342,35 @@ def criar_solicitacao_atomica(
                     identidade_serializada,
                     resultado_serializado,
                     publicacao_id,
+                    agora,
+                ),
+            )
+        if autorizacao_auditoria is not None:
+            conexao.execute(
+                """
+                INSERT INTO autorizacoes_publicacao_consumidas (
+                    autorizacao_id, publicacao_id, emissor_id,
+                    autorizador_id, confirmado_em, expira_em,
+                    conteudo_id, canal_id, plataforma, privacidade,
+                    prioridade, agendado_para, snapshot_fingerprint,
+                    consumida_em
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                (
+                    autorizacao_auditoria["autorizacao_id"],
+                    publicacao_id,
+                    autorizacao_auditoria["emissor_id"],
+                    autorizacao_auditoria["autorizador_id"],
+                    autorizacao_auditoria["confirmado_em"],
+                    autorizacao_auditoria["expira_em"],
+                    autorizacao_auditoria["conteudo_id"],
+                    autorizacao_auditoria["canal_id"],
+                    autorizacao_auditoria["plataforma"],
+                    autorizacao_auditoria["privacidade"],
+                    autorizacao_auditoria["prioridade"],
+                    autorizacao_auditoria["agendado_para"],
+                    autorizacao_auditoria["snapshot_fingerprint"],
                     agora,
                 ),
             )

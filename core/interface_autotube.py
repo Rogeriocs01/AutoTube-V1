@@ -60,6 +60,32 @@ class InterfaceAutoTube:
             agendado_para=agendado_para,
         )
 
+    def solicitar_publicacao_supervisionada(
+        self,
+        autorizacao,
+        conteudo_id,
+        privacidade="private",
+        canal_id=None,
+        prioridade=100,
+        plataforma="YOUTUBE",
+        agendado_para=None,
+        chave_idempotencia=None,
+        snapshot_esperado=None,
+    ):
+        """Cria solicitação auditada; não autoriza execução ou upload."""
+
+        return self._servico.criar_solicitacao_supervisionada(
+            autorizacao=autorizacao,
+            conteudo_id=conteudo_id,
+            privacidade=privacidade,
+            canal_id=canal_id,
+            prioridade=prioridade,
+            plataforma=plataforma,
+            agendado_para=agendado_para,
+            chave_idempotencia=chave_idempotencia,
+            snapshot_esperado=snapshot_esperado,
+        )
+
     def consultar_proximo_job(self):
         """Consulta o próximo job aguardando. Somente leitura."""
         return self._servico.consultar_proximo_job()

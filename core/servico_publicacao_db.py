@@ -1,4 +1,5 @@
-﻿from core.logger import obter_logger
+﻿from core.autorizacao_publicacao import ErroAutorizacaoSupervisionada
+from core.logger import obter_logger
 
 from core.pipeline import (
     excluir_arquivo_temporario,
@@ -68,6 +69,9 @@ class ServicoPublicacaoDB:
     O pipeline atual continua responsável
     pela execução técnica da publicação.
     """
+
+    def __init__(self, emissor_autorizacao=None):
+        self._emissor_autorizacao = emissor_autorizacao
 
     def obter_dados_conteudo(
         self,
@@ -565,6 +569,128 @@ class ServicoPublicacaoDB:
             plataforma,
         )
 
+        return resultado
+
+    def criar_solicitacao_supervisionada(
+        self,
+        autorizacao,
+        conteudo_id,
+        privacidade="private",
+        canal_id=None,
+        prioridade=100,
+        plataforma=PLATAFORMA_YOUTUBE,
+        agendado_para=None,
+        chave_idempotencia=None,
+        snapshot_esperado=None,
+    ):
+        """Cria solicitação após validar autorização confiável de uso único."""
+
+        emissor = self._emissor_autorizacao
+        if emissor is None:
+            raise ErroAutorizacaoSupervisionada(
+                "authorization_issuer_unavailable",
+                "nenhum emissor confiável está configurado",
+            )
+        emissor.validar_assinatura(autorizacao)
+
+        parametros = self._normalizar_parametros_publicacao(
+            conteudo_id=conteudo_id,
+            privacidade=privacidade,
+            canal_id=canal_id,
+            prioridade=prioridade,
+            plataforma=plataforma,
+            agendado_para=agendado_para,
+        )
+        chave_idempotencia = self._normalizar_chave_idempotencia(
+            chave_idempotencia
+        )
+        if chave_idempotencia is None:
+            raise ErroAutorizacaoSupervisionada(
+                "idempotency_key_required",
+                "chave de idempotência obrigatória",
+            )
+        snapshot_esperado = self._normalizar_snapshot_esperado(
+            snapshot_esperado
+        )
+        if snapshot_esperado is None:
+            raise ErroAutorizacaoSupervisionada(
+                "snapshot_required",
+                "snapshot confirmado obrigatório",
+            )
+
+        identidade_solicitacao = {
+            **parametros,
+            "max_tentativas": 3,
+            "snapshot_esperado": snapshot_esperado,
+            "autorizacao_id": autorizacao.autorizacao_id,
+        }
+        resultado_existente = obter_resultado_solicitacao_idempotente(
+            chave_idempotencia,
+            identidade_solicitacao,
+        )
+        if resultado_existente is not None:
+            logger.info(
+                "Solicitação supervisionada idempotente recuperada | "
+                "publicacao_id=%s",
+                resultado_existente["publicacao_id"],
+            )
+            return resultado_existente
+
+        emissor.validar_confirmacao(
+            autorizacao,
+            parametros,
+            snapshot_esperado,
+            verificar_expiracao=True,
+        )
+        conteudo, metadados = self.obter_dados_conteudo(
+            parametros["conteudo_id"]
+        )
+        self.validar_conteudo(conteudo, metadados)
+        resultado_criacao = {
+            "sucesso": True,
+            "publicacao_id": None,
+            "conteudo_id": parametros["conteudo_id"],
+            "plataforma": parametros["plataforma"],
+            "status": "AGUARDANDO",
+            "mensagem": "Publicação adicionada à fila.",
+            "execucao_autorizada": False,
+            "conteudo": conteudo,
+            "metadados": metadados,
+            "video_pipeline": self.adaptar_video_pipeline(conteudo),
+        }
+        resultado, recuperada = criar_solicitacao_atomica(
+            conteudo_id=parametros["conteudo_id"],
+            plataforma=parametros["plataforma"],
+            canal_id=parametros["canal_id"],
+            privacidade=parametros["privacidade"],
+            prioridade=parametros["prioridade"],
+            max_tentativas=3,
+            agendado_para=parametros["agendado_para"],
+            chave_idempotencia=chave_idempotencia,
+            identidade_solicitacao=identidade_solicitacao,
+            resultado_criacao=resultado_criacao,
+            snapshot_esperado=snapshot_esperado,
+            autorizacao_auditoria=autorizacao.dados_auditoria(),
+            validar_autorizacao_transacional=lambda: (
+                emissor.validar_confirmacao(
+                    autorizacao,
+                    parametros,
+                    snapshot_esperado,
+                    verificar_expiracao=True,
+                )
+            ),
+        )
+        logger.info(
+            "%s | publicacao_id=%s | conteudo_id=%s | plataforma=%s",
+            (
+                "Solicitação supervisionada idempotente recuperada"
+                if recuperada
+                else "Solicitação supervisionada criada"
+            ),
+            resultado["publicacao_id"],
+            parametros["conteudo_id"],
+            parametros["plataforma"],
+        )
         return resultado
 
     def criar_etapas_youtube(
