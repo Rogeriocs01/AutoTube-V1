@@ -1,8 +1,10 @@
 import json
+import hmac
 from datetime import datetime
 from uuid import uuid4
 
 from core.database import conectar_banco
+from core.snapshot_publicacao import calcular_fingerprint_snapshot
 
 
 def agora_iso():
@@ -58,6 +60,17 @@ class ConflitoIdempotenciaError(RuntimeError):
     def __init__(self):
         super().__init__(
             "idempotency_conflict: chave já utilizada com outros parâmetros"
+        )
+
+
+class SnapshotDesatualizadoError(RuntimeError):
+    """Indica divergência entre a prévia confirmada e os dados atuais."""
+
+    codigo = "snapshot_stale"
+
+    def __init__(self):
+        super().__init__(
+            "snapshot_stale: os dados da publicação foram alterados"
         )
 
 
@@ -124,6 +137,7 @@ def criar_solicitacao_atomica(
     chave_idempotencia=None,
     identidade_solicitacao=None,
     resultado_criacao=None,
+    snapshot_esperado=None,
 ):
     """Cria publicação, fila, etapas e histórico em uma transação."""
 
@@ -168,6 +182,32 @@ def criar_solicitacao_atomica(
                     json.loads(registro_idempotente["resultado_criacao"]),
                     True,
                 )
+
+        if snapshot_esperado is not None:
+            conteudo_atual = conexao.execute(
+                "SELECT * FROM conteudos WHERE id = ?;",
+                (conteudo_id,),
+            ).fetchone()
+            metadados_atuais = conexao.execute(
+                "SELECT * FROM metadados WHERE conteudo_id = ?;",
+                (conteudo_id,),
+            ).fetchone()
+            if conteudo_atual is None or metadados_atuais is None:
+                raise SnapshotDesatualizadoError()
+            snapshot_atual = calcular_fingerprint_snapshot(
+                dict(conteudo_atual),
+                dict(metadados_atuais),
+                {
+                    "conteudo_id": conteudo_id,
+                    "privacidade": privacidade,
+                    "canal_id": canal_id,
+                    "prioridade": prioridade,
+                    "plataforma": plataforma,
+                    "agendado_para": agendado_para,
+                },
+            )
+            if not hmac.compare_digest(snapshot_atual, snapshot_esperado):
+                raise SnapshotDesatualizadoError()
 
         cursor = conexao.execute(
             """

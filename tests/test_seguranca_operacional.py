@@ -253,6 +253,197 @@ class PrevisualizacaoOficialTests(BancoTemporarioMixin, unittest.TestCase):
         self.assertEqual(banco_antes, self.db_path.read_bytes())
 
 
+class SnapshotPublicacaoTests(BancoTemporarioMixin, unittest.TestCase):
+    def _previsualizar(self, **sobrescritas):
+        parametros: dict = {
+            "conteudo_id": "conteudo-1",
+            "privacidade": "private",
+            "canal_id": "UC1234567890",
+        }
+        parametros.update(sobrescritas)
+        return InterfaceAutoTube(self.servico).previsualizar_publicacao(
+            **parametros
+        )
+
+    def _solicitar(self, snapshot_esperado=None, **sobrescritas):
+        parametros: dict = {
+            "conteudo_id": "conteudo-1",
+            "privacidade": "private",
+            "canal_id": "UC1234567890",
+        }
+        parametros.update(sobrescritas)
+        if snapshot_esperado is not None:
+            parametros["snapshot_esperado"] = snapshot_esperado
+        return InterfaceAutoTube(self.servico).solicitar_publicacao(
+            **parametros
+        )
+
+    def _contagens_criacao(self):
+        conexao = database.conectar_banco()
+        try:
+            return tuple(
+                conexao.execute(
+                    f"SELECT COUNT(*) AS quantidade FROM {tabela};"
+                ).fetchone()["quantidade"]
+                for tabela in (
+                    "publicacoes",
+                    "fila_publicacao",
+                    "etapas_publicacao",
+                    "historico_publicacao",
+                )
+            )
+        finally:
+            conexao.close()
+
+    def test_snapshot_e_estavel_e_previsualizacao_permanece_sem_escrita(self):
+        banco_antes = self.db_path.read_bytes()
+
+        primeiro = self._previsualizar()
+        segundo = self._previsualizar()
+
+        self.assertRegex(
+            primeiro["snapshot_fingerprint"],
+            r"^sha256:[0-9a-f]{64}$",
+        )
+        self.assertEqual(
+            primeiro["snapshot_fingerprint"],
+            segundo["snapshot_fingerprint"],
+        )
+        self.assertEqual(banco_antes, self.db_path.read_bytes())
+
+    def test_alteracao_de_titulo_muda_snapshot(self):
+        original = self._previsualizar()["snapshot_fingerprint"]
+        salvar_metadados(
+            conteudo_id="conteudo-1",
+            titulo="Título alterado",
+            descricao="Descrição",
+        )
+
+        alterado = self._previsualizar()["snapshot_fingerprint"]
+
+        self.assertNotEqual(original, alterado)
+
+    def test_alteracao_de_canal_ou_privacidade_muda_snapshot(self):
+        original = self._previsualizar()["snapshot_fingerprint"]
+
+        outro_canal = self._previsualizar(
+            canal_id="UC0987654321"
+        )["snapshot_fingerprint"]
+        outra_privacidade = self._previsualizar(
+            privacidade="unlisted"
+        )["snapshot_fingerprint"]
+
+        self.assertNotEqual(original, outro_canal)
+        self.assertNotEqual(original, outra_privacidade)
+        with self.assertRaisesRegex(RuntimeError, "snapshot_stale"):
+            self._solicitar(
+                snapshot_esperado=original,
+                canal_id="UC0987654321",
+            )
+        with self.assertRaisesRegex(RuntimeError, "snapshot_stale"):
+            self._solicitar(
+                snapshot_esperado=original,
+                privacidade="unlisted",
+            )
+        self.assertEqual((0, 0, 0, 0), self._contagens_criacao())
+
+    def test_alteracao_de_agendamento_muda_snapshot(self):
+        original = self._previsualizar()["snapshot_fingerprint"]
+        agendado = self._previsualizar(
+            agendado_para="2030-01-02T03:04:05"
+        )["snapshot_fingerprint"]
+
+        self.assertNotEqual(original, agendado)
+        with self.assertRaisesRegex(RuntimeError, "snapshot_stale"):
+            self._solicitar(
+                snapshot_esperado=original,
+                agendado_para="2030-01-02T03:04:05",
+            )
+        self.assertEqual((0, 0, 0, 0), self._contagens_criacao())
+
+    def test_snapshot_divergente_rejeita_sem_criacao_parcial(self):
+        snapshot = self._previsualizar()["snapshot_fingerprint"]
+        salvar_metadados(
+            conteudo_id="conteudo-1",
+            titulo="Título alterado",
+            descricao="Descrição",
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "snapshot_stale") as contexto:
+            self._solicitar(snapshot_esperado=snapshot)
+
+        self.assertEqual(
+            "snapshot_stale",
+            getattr(contexto.exception, "codigo", None),
+        )
+        self.assertEqual((0, 0, 0, 0), self._contagens_criacao())
+
+    def test_repeticao_idempotente_recupera_resultado_com_snapshot_original(self):
+        snapshot = self._previsualizar()["snapshot_fingerprint"]
+        primeiro = self._solicitar(
+            snapshot_esperado=snapshot,
+            chave_idempotencia="request-with-snapshot",
+        )
+        salvar_metadados(
+            conteudo_id="conteudo-1",
+            titulo="Título alterado",
+            descricao="Descrição",
+        )
+
+        segundo = self._solicitar(
+            snapshot_esperado=snapshot,
+            chave_idempotencia="request-with-snapshot",
+        )
+
+        self.assertEqual(primeiro, segundo)
+        self.assertEqual((1, 1, 6, 1), self._contagens_criacao())
+
+        snapshot_atual = self._previsualizar()["snapshot_fingerprint"]
+        with self.assertRaisesRegex(RuntimeError, "idempotency_conflict"):
+            self._solicitar(
+                snapshot_esperado=snapshot_atual,
+                chave_idempotencia="request-with-snapshot",
+            )
+        self.assertEqual((1, 1, 6, 1), self._contagens_criacao())
+
+    def test_alteracao_concorrente_antes_da_transacao_e_detectada(self):
+        snapshot = self._previsualizar()["snapshot_fingerprint"]
+        pronto = threading.Event()
+        continuar = threading.Event()
+        erros = []
+        criar_original = repositorio_publicacao.criar_solicitacao_atomica
+
+        def criar_apos_alteracao(**parametros):
+            pronto.set()
+            continuar.wait(timeout=2)
+            return criar_original(**parametros)
+
+        def solicitar():
+            try:
+                self._solicitar(snapshot_esperado=snapshot)
+            except Exception as erro:
+                erros.append(erro)
+
+        with patch(
+            "core.servico_publicacao_db.criar_solicitacao_atomica",
+            side_effect=criar_apos_alteracao,
+        ):
+            thread = threading.Thread(target=solicitar)
+            thread.start()
+            self.assertTrue(pronto.wait(timeout=2))
+            salvar_metadados(
+                conteudo_id="conteudo-1",
+                titulo="Título concorrente",
+                descricao="Descrição",
+            )
+            continuar.set()
+            thread.join(timeout=5)
+
+        self.assertEqual(1, len(erros))
+        self.assertEqual("snapshot_stale", getattr(erros[0], "codigo", None))
+        self.assertEqual((0, 0, 0, 0), self._contagens_criacao())
+
+
 class ConcorrenciaEIdempotenciaTests(BancoTemporarioMixin, unittest.TestCase):
     def test_solicitacoes_concorrentes_criam_uma_unica_publicacao(self):
         barreira = threading.Barrier(2)

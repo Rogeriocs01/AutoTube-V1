@@ -40,6 +40,7 @@ from core.repositorio_publicacao import (
     registrar_historico,
     salvar_etapa,
 )
+from core.snapshot_publicacao import calcular_fingerprint_snapshot
 
 
 logger = obter_logger()
@@ -263,11 +264,29 @@ class ServicoPublicacaoDB:
             raise ValueError("chave_idempotencia inválida")
         return chave_idempotencia
 
+    def _normalizar_snapshot_esperado(self, snapshot_esperado):
+        """Valida o identificador SHA-256 sem alterar seu valor."""
+
+        if snapshot_esperado is None:
+            return None
+        if not isinstance(snapshot_esperado, str):
+            raise ValueError("snapshot_esperado deve ser uma string")
+        prefixo = "sha256:"
+        resumo = snapshot_esperado[len(prefixo):]
+        if (
+            not snapshot_esperado.startswith(prefixo)
+            or len(resumo) != 64
+            or any(caractere not in "0123456789abcdef" for caractere in resumo)
+        ):
+            raise ValueError("snapshot_esperado inválido")
+        return snapshot_esperado
+
     def _resultado_previsualizacao(
         self,
         parametros,
         motivos_bloqueio,
         verificacoes_locais,
+        snapshot_fingerprint=None,
     ):
         """Monta o contrato estável e explicitamente sem efeitos da prévia."""
 
@@ -306,6 +325,7 @@ class ServicoPublicacaoDB:
                 },
             ],
             "parametros": parametros,
+            "snapshot_fingerprint": snapshot_fingerprint,
             "verificacoes_locais": verificacoes_locais,
             "publicacao_executada": False,
             "efeitos": {
@@ -400,6 +420,11 @@ class ServicoPublicacaoDB:
         return self._resultado_previsualizacao(
             parametros=parametros,
             motivos_bloqueio=motivos_bloqueio,
+            snapshot_fingerprint=calcular_fingerprint_snapshot(
+                conteudo,
+                metadados,
+                parametros,
+            ),
             verificacoes_locais={
                 "parametros_validos": True,
                 "conteudo_encontrado": True,
@@ -420,6 +445,7 @@ class ServicoPublicacaoDB:
         plataforma=PLATAFORMA_YOUTUBE,
         agendado_para=None,
         chave_idempotencia=None,
+        snapshot_esperado=None,
     ):
         """
         Cria uma solicitação de publicação
@@ -449,10 +475,15 @@ class ServicoPublicacaoDB:
         chave_idempotencia = self._normalizar_chave_idempotencia(
             chave_idempotencia
         )
+        snapshot_esperado = self._normalizar_snapshot_esperado(
+            snapshot_esperado
+        )
         identidade_solicitacao = {
             **parametros,
             "max_tentativas": 3,
         }
+        if snapshot_esperado is not None:
+            identidade_solicitacao["snapshot_esperado"] = snapshot_esperado
 
         if chave_idempotencia is not None:
             resultado_existente = obter_resultado_solicitacao_idempotente(
@@ -507,6 +538,7 @@ class ServicoPublicacaoDB:
                 resultado_criacao
                 if chave_idempotencia is not None else None
             ),
+            snapshot_esperado=snapshot_esperado,
         )
 
         if chave_idempotencia is not None:

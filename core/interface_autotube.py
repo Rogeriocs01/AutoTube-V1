@@ -24,6 +24,7 @@ class InterfaceAutoTube:
         plataforma="YOUTUBE",
         agendado_para=None,
         chave_idempotencia=None,
+        snapshot_esperado=None,
     ):
         """Cria uma solicitação e a adiciona à fila. Não executa upload."""
         parametros = {
@@ -36,6 +37,8 @@ class InterfaceAutoTube:
         }
         if chave_idempotencia is not None:
             parametros["chave_idempotencia"] = chave_idempotencia
+        if snapshot_esperado is not None:
+            parametros["snapshot_esperado"] = snapshot_esperado
         return self._servico.criar_solicitacao(**parametros)
 
     def previsualizar_publicacao(
