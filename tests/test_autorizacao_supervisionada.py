@@ -408,6 +408,102 @@ class AutorizacaoSupervisionadaTests(unittest.TestCase):
             self._contagens()["autorizacoes_publicacao_consumidas"],
         )
 
+    def test_consulta_idempotente_recupera_apos_reinicio_sem_efeitos(self):
+        resultado = self._solicitar(self._emitir())
+        contagens_antes = self._contagens()
+        bytes_antes = self.db_path.read_bytes()
+
+        interface_reiniciada = InterfaceAutoTube(
+            ServicoPublicacaoDB(emissor_autorizacao=self.emissor)
+        )
+        consulta = interface_reiniciada.consultar_solicitacao_supervisionada(
+            "request-supervised"
+        )
+
+        self.assertEqual(resultado["publicacao_id"], consulta["publicacao_id"])
+        self.assertEqual("BLOQUEADA", consulta["estado_supervisao"])
+        self.assertEqual("AGUARDANDO", consulta["status_publicacao"])
+        self.assertEqual("AGUARDANDO", consulta["status_fila"])
+        self.assertTrue(consulta["execucao_bloqueada"])
+        self.assertFalse(consulta["execucao_autorizada"])
+        self.assertNotIn("conteudo", consulta)
+        self.assertNotIn("metadados", consulta)
+        self.assertNotIn("video_pipeline", consulta)
+        self.assertEqual(contagens_antes, self._contagens())
+        self.assertEqual(bytes_antes, self.db_path.read_bytes())
+
+    def test_consulta_inexistente_e_somente_leitura(self):
+        bytes_antes = self.db_path.read_bytes()
+
+        consulta = self.interface.consultar_solicitacao_supervisionada(
+            "request-inexistente"
+        )
+
+        self.assertEqual(
+            {
+                "encontrada": False,
+                "estado_supervisao": "NAO_ENCONTRADA",
+                "execucao_autorizada": False,
+            },
+            consulta,
+        )
+        self.assertEqual(bytes_antes, self.db_path.read_bytes())
+
+    def test_solicitacao_supervisionada_fica_fora_dos_workers(self):
+        resultado = self._solicitar(self._emitir())
+        servico_reiniciado = ServicoPublicacaoDB(
+            emissor_autorizacao=self.emissor
+        )
+
+        self.assertIsNone(servico_reiniciado.consultar_proximo_job())
+        with patch(
+            "core.servico_publicacao_db.processar_publicacao"
+        ) as processar:
+            self.assertIsNone(
+                servico_reiniciado.executar_proxima_publicacao()
+            )
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "supervision_execution_blocked",
+            ):
+                servico_reiniciado.executar_job(resultado["publicacao_id"])
+        processar.assert_not_called()
+
+        conexao = database.conectar_banco()
+        try:
+            bloqueio = conexao.execute(
+                """
+                SELECT execucao_bloqueada
+                FROM solicitacoes_publicacao_supervisionadas
+                WHERE publicacao_id = ?;
+                """,
+                (resultado["publicacao_id"],),
+            ).fetchone()
+            with self.assertRaises(sqlite3.IntegrityError):
+                conexao.execute(
+                    """
+                    UPDATE solicitacoes_publicacao_supervisionadas
+                    SET execucao_bloqueada = 0
+                    WHERE publicacao_id = ?;
+                    """,
+                    (resultado["publicacao_id"],),
+                )
+        finally:
+            conexao.close()
+        self.assertEqual(1, bloqueio["execucao_bloqueada"])
+
+    def test_worker_legado_permanece_compativel(self):
+        resultado = InterfaceAutoTube(
+            ServicoPublicacaoDB()
+        ).solicitar_publicacao(
+            conteudo_id="conteudo-1",
+            canal_id="UC1234567890",
+        )
+
+        job = ServicoPublicacaoDB().consultar_proximo_job()
+
+        self.assertEqual(resultado["publicacao_id"], job["publicacao_id"])
+
 
 if __name__ == "__main__":
     unittest.main()

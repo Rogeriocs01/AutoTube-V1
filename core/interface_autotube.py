@@ -90,6 +90,12 @@ class InterfaceAutoTube:
         """Consulta o próximo job aguardando. Somente leitura."""
         return self._servico.consultar_proximo_job()
 
+    def consultar_solicitacao_supervisionada(self, chave_idempotencia):
+        """Recupera por idempotência sem criar ou executar publicação."""
+        return self._servico.consultar_solicitacao_supervisionada(
+            chave_idempotencia
+        )
+
     def obter_job(self, job_id):
         """Consulta um job específico. Somente leitura."""
         return self._servico.obter_job(job_id)

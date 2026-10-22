@@ -26,7 +26,9 @@ from core.repositorio_publicacao import (
     adquirir_execucao,
     atualizar_item_fila,
     atualizar_publicacao,
+    consultar_solicitacao_supervisionada_por_chave,
     criar_solicitacao_atomica,
+    execucao_supervisionada_bloqueada,
     finalizar_execucao_atomica,
     incrementar_tentativa_fila,
     listar_etapas,
@@ -693,6 +695,35 @@ class ServicoPublicacaoDB:
         )
         return resultado
 
+    def consultar_solicitacao_supervisionada(self, chave_idempotencia):
+        """Recupera uma solicitação supervisionada sem efeitos."""
+
+        chave_idempotencia = self._normalizar_chave_idempotencia(
+            chave_idempotencia
+        )
+        if chave_idempotencia is None:
+            raise ValueError("chave de idempotência obrigatória")
+        registro = consultar_solicitacao_supervisionada_por_chave(
+            chave_idempotencia
+        )
+        if registro is None:
+            return {
+                "encontrada": False,
+                "estado_supervisao": "NAO_ENCONTRADA",
+                "execucao_autorizada": False,
+            }
+        return {
+            "encontrada": True,
+            "estado_supervisao": "BLOQUEADA",
+            "publicacao_id": registro["publicacao_id"],
+            "conteudo_id": registro["conteudo_id"],
+            "plataforma": registro["plataforma"],
+            "status_publicacao": registro["status_publicacao"],
+            "status_fila": registro["status_fila"],
+            "execucao_bloqueada": bool(registro["execucao_bloqueada"]),
+            "execucao_autorizada": False,
+        }
+
     def criar_etapas_youtube(
         self,
         publicacao_id,
@@ -907,6 +938,8 @@ class ServicoPublicacaoDB:
         from datetime import datetime
 
         for item in fila:
+            if execucao_supervisionada_bloqueada(item["publicacao_id"]):
+                continue
             agendado_para = item.get("agendado_para")
             if agendado_para:
                 try:

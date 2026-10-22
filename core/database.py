@@ -152,6 +152,42 @@ def migrar_autorizacao_supervisionada_publicacao(
     )
 
 
+def migrar_bloqueio_execucao_supervisionada(conexao):
+    """Cria o bloqueio durável de solicitações supervisionadas."""
+
+    conexao.execute(
+        """
+        CREATE TABLE IF NOT EXISTS solicitacoes_publicacao_supervisionadas (
+            publicacao_id TEXT PRIMARY KEY,
+            chave_idempotencia TEXT NOT NULL UNIQUE,
+            execucao_bloqueada INTEGER NOT NULL DEFAULT 1
+                CHECK (execucao_bloqueada = 1),
+            data_criacao TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (publicacao_id) REFERENCES publicacoes (id)
+                ON DELETE RESTRICT,
+            FOREIGN KEY (chave_idempotencia)
+                REFERENCES idempotencia_solicitacao_publicacao (chave)
+                ON DELETE RESTRICT
+        );
+        """
+    )
+    conexao.execute(
+        """
+        INSERT OR IGNORE INTO solicitacoes_publicacao_supervisionadas (
+            publicacao_id, chave_idempotencia, execucao_bloqueada
+        )
+        SELECT
+            autorizacoes_publicacao_consumidas.publicacao_id,
+            idempotencia_solicitacao_publicacao.chave,
+            1
+        FROM autorizacoes_publicacao_consumidas
+        INNER JOIN idempotencia_solicitacao_publicacao
+            ON idempotencia_solicitacao_publicacao.publicacao_id =
+               autorizacoes_publicacao_consumidas.publicacao_id;
+        """
+    )
+
+
 def atualizar_schema_existente(
     conexao,
 ):
@@ -183,6 +219,10 @@ def atualizar_schema_existente(
     )
 
     migrar_autorizacao_supervisionada_publicacao(
+        conexao
+    )
+
+    migrar_bloqueio_execucao_supervisionada(
         conexao
     )
 

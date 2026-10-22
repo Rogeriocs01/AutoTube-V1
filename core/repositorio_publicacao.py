@@ -126,6 +126,53 @@ def obter_resultado_solicitacao_idempotente(
         conexao.close()
 
 
+def consultar_solicitacao_supervisionada_por_chave(chave_idempotencia):
+    """Consulta dados sanitizados sem criar ou alterar solicitações."""
+
+    conexao = conectar_banco()
+    try:
+        registro = conexao.execute(
+            """
+            SELECT
+                publicacoes.id AS publicacao_id,
+                publicacoes.conteudo_id,
+                publicacoes.plataforma,
+                publicacoes.status AS status_publicacao,
+                fila_publicacao.status AS status_fila,
+                solicitacoes_publicacao_supervisionadas.execucao_bloqueada
+            FROM solicitacoes_publicacao_supervisionadas
+            INNER JOIN publicacoes
+                ON publicacoes.id =
+                   solicitacoes_publicacao_supervisionadas.publicacao_id
+            INNER JOIN fila_publicacao
+                ON fila_publicacao.publicacao_id = publicacoes.id
+            WHERE solicitacoes_publicacao_supervisionadas.chave_idempotencia = ?;
+            """,
+            (chave_idempotencia,),
+        ).fetchone()
+        return dict(registro) if registro is not None else None
+    finally:
+        conexao.close()
+
+
+def execucao_supervisionada_bloqueada(publicacao_id):
+    """Informa se a publicação possui bloqueio supervisionado durável."""
+
+    conexao = conectar_banco()
+    try:
+        registro = conexao.execute(
+            """
+            SELECT 1
+            FROM solicitacoes_publicacao_supervisionadas
+            WHERE publicacao_id = ? AND execucao_bloqueada = 1;
+            """,
+            (publicacao_id,),
+        ).fetchone()
+        return registro is not None
+    finally:
+        conexao.close()
+
+
 def criar_solicitacao_atomica(
     conteudo_id,
     plataforma,
@@ -374,6 +421,16 @@ def criar_solicitacao_atomica(
                     agora,
                 ),
             )
+            conexao.execute(
+                """
+                INSERT INTO solicitacoes_publicacao_supervisionadas (
+                    publicacao_id, chave_idempotencia,
+                    execucao_bloqueada, data_criacao
+                )
+                VALUES (?, ?, 1, ?);
+                """,
+                (publicacao_id, chave_idempotencia, agora),
+            )
         conexao.commit()
         if chave_idempotencia is not None:
             if resultado_serializado is None:
@@ -408,7 +465,13 @@ def adquirir_execucao(publicacao_id):
                 fila_publicacao.status AS status_fila,
                 fila_publicacao.tentativas,
                 fila_publicacao.max_tentativas,
-                fila_publicacao.agendado_para
+                fila_publicacao.agendado_para,
+                EXISTS (
+                    SELECT 1
+                    FROM solicitacoes_publicacao_supervisionadas
+                    WHERE publicacao_id = publicacoes.id
+                      AND execucao_bloqueada = 1
+                ) AS execucao_supervisionada_bloqueada
             FROM publicacoes
             INNER JOIN fila_publicacao
                 ON fila_publicacao.publicacao_id = publicacoes.id
@@ -428,6 +491,12 @@ def adquirir_execucao(publicacao_id):
         external_id = str(estado["external_id"] or "").strip()
         tentativas = estado["tentativas"] or 0
         max_tentativas = estado["max_tentativas"] or 0
+
+        if estado["execucao_supervisionada_bloqueada"]:
+            raise RuntimeError(
+                "supervision_execution_blocked: "
+                "solicitação supervisionada não pode ser executada"
+            )
 
         conflito = conexao.execute(
             """
